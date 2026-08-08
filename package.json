@@ -1,0 +1,84 @@
+{
+  "name": "xpectrum",
+  "version": "1.0.0",
+  "description": "Official Xpectrum AI SDK — add AI chat and real-time voice to any website or app.",
+  "author": "Xpectrum AI",
+  "license": "MIT",
+  "main": "dist/index.cjs.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.cjs.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./chat": {
+      "import": "./dist/chat/index.esm.js",
+      "require": "./dist/chat/index.cjs.js",
+      "types": "./dist/chat/index.d.ts"
+    },
+    "./voice": {
+      "import": "./dist/voice/index.esm.js",
+      "require": "./dist/voice/index.cjs.js",
+      "types": "./dist/voice/index.d.ts"
+    },
+    "./widgets": {
+      "import": "./dist/widgets/index.esm.js",
+      "require": "./dist/widgets/index.cjs.js",
+      "types": "./dist/widgets/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "rollup -c rollup.config.mjs",
+    "build:types": "tsc --emitDeclarationOnly --outDir dist",
+    "dev": "rollup -c rollup.config.mjs --watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build && npm run build:types",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "xpectrum",
+    "ai",
+    "sdk",
+    "chat",
+    "voice",
+    "livekit",
+    "chatbot",
+    "voice-assistant",
+    "widget",
+    "embed",
+    "openai-compatible"
+  ],
+  "dependencies": {
+    "livekit-client": "^2.17.2"
+  },
+  "devDependencies": {
+    "@rollup/plugin-node-resolve": "^16.0.0",
+    "@rollup/plugin-terser": "^0.4.0",
+    "@rollup/plugin-typescript": "^12.1.0",
+    "rollup": "^4.0.0",
+    "tslib": "^2.8.0",
+    "typescript": "^5.6.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Xpectrum-AI/xpectrum-js.git"
+  },
+  "homepage": "https://github.com/Xpectrum-AI/xpectrum-js#readme",
+  "bugs": {
+    "url": "https://github.com/Xpectrum-AI/xpectrum-js/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>xpectrum SDK — manual test</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 3rem auto; padding: 0 1rem; line-height: 1.6; }
+    code, input { font-family: ui-monospace, monospace; }
+    fieldset { border: 1px solid #ddd; border-radius: 8px; margin-bottom: 1.5rem; padding: 1rem 1.25rem; }
+    legend { font-weight: 600; padding: 0 .4rem; }
+    label { display: block; margin: .5rem 0 .15rem; font-size: .85rem; color: #555; }
+    input { width: 100%; padding: .45rem .6rem; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; }
+    button { margin-top: .9rem; padding: .5rem 1rem; border: 0; border-radius: 6px; background: #7C3AED; color: #fff; font-size: .9rem; cursor: pointer; }
+    button:hover { background: #6d28d9; }
+    pre { background: #f6f6f7; padding: .75rem; border-radius: 6px; overflow-x: auto; font-size: .8rem; }
+  </style>
+</head>
+<body>
+  <h1>xpectrum SDK — manual test</h1>
+  <p>
+    Fill in your credentials and click a button. Run this from a local server so the
+    module loads: <code>npx serve .</code> then open <code>/examples/</code>.
+  </p>
+
+  <fieldset>
+    <legend>Chat widget</legend>
+    <label>API Server (baseUrl)</label>
+    <input id="chatBase" placeholder="https://apps-v2-dev.xpectrum-ai.com/v1" />
+    <label>API key</label>
+    <input id="chatKey" placeholder="app-..." />
+    <label>Welcome message</label>
+    <input id="chatWelcome" value="Hi! How can I help?" />
+    <button id="mountChat">Mount chat widget</button>
+    <p style="font-size:.85rem;color:#666">
+      A purple bubble appears bottom-right. Open it, send a message, and watch the
+      reply stream in. Check the Network tab — you should see exactly one request,
+      to <code>/chat/completions</code>.
+    </p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Voice widget</legend>
+    <label>Voice server (baseUrl)</label>
+    <input id="voiceBase" placeholder="https://voice.yourserver.com" />
+    <label>API key</label>
+    <input id="voiceKey" placeholder="xpectrum_ai_sk_..." />
+    <label>Agent name</label>
+    <input id="voiceAgent" placeholder="my-sales-agent" />
+    <button id="mountVoice">Mount voice widget</button>
+    <p style="font-size:.85rem;color:#666">
+      Requires microphone permission. Expect <code>/tokens/generate</code> in the
+      Network tab, then a WebRTC connection to LiveKit.
+    </p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Chat client (no UI)</legend>
+    <button id="runChat">Run send() + stream()</button>
+    <pre id="out">(output appears here)</pre>
+  </fieldset>
+
+  <script type="module">
+    import { ChatWidget, VoiceWidget, XpectrumChat } from '../dist/index.esm.js';
+
+    const $ = (id) => document.getElementById(id);
+    const log = (msg) => { $('out').textContent += msg + '\n'; };
+
+    $('mountChat').onclick = () => {
+      new ChatWidget({
+        baseUrl: $('chatBase').value.trim(),
+        apiKey: $('chatKey').value.trim(),
+        welcomeMessage: $('chatWelcome').value,
+      });
+      $('mountChat').disabled = true;
+    };
+
+    $('mountVoice').onclick = () => {
+      new VoiceWidget({
+        baseUrl: $('voiceBase').value.trim(),
+        apiKey: $('voiceKey').value.trim(),
+        agentName: $('voiceAgent').value.trim(),
+        onTranscription: (s) => log(`${s.speaker}: ${s.text}`),
+        onStateChange: (s) => log(`[state] ${s}`),
+      });
+      $('mountVoice').disabled = true;
+    };
+
+    $('runChat').onclick = async () => {
+      $('out').textContent = '';
+      const chat = new XpectrumChat({
+        baseUrl: $('chatBase').value.trim(),
+        apiKey: $('chatKey').value.trim(),
+        user: 'browser-test',
+      });
+      try {
+        log('models: ' + JSON.stringify(await chat.listModels()));
+        const r = await chat.send('Say hello in one sentence.');
+        log('send(): ' + r.content);
+        log('conversationId: ' + r.conversationId);
+        log('--- stream() ---');
+        await chat.stream('Count to 5.', { onToken: (d) => { $('out').textContent += d; } });
+        log('\ndone');
+      } catch (e) {
+        log('ERROR ' + e.status + ': ' + e.message);
+      }
+    };
+  </script>
+</body>
+</html>
