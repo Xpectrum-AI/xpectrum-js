@@ -82,12 +82,87 @@ chat.stream('Long question…', {
 chat.destroy();   // aborts every in-flight stream
 ```
 
+### Past conversations
+
+History lives server-side. List a user's previous conversations, load one, and
+carry on where they left off:
+
+```typescript
+// Previous conversations, newest first. Titles are generated automatically.
+const { data: threads } = await chat.listThreads({ limit: 20 });
+// → [{ id, title: 'Learning to count to 5', createdAt, updatedAt }, …]
+
+// Load one transcript, oldest message first
+const { data: messages } = await chat.getMessages(threads[0].id);
+// → [{ id, role: 'user', content: '…' }, { id, role: 'assistant', content: '…' }]
+
+// Continue that conversation
+await chat.send('And what about weekends?', { conversationId: threads[0].id });
+```
+
+Both are paginated. Pass the previous page's cursor to go further back:
+
+```typescript
+const older = await chat.listThreads({ after: page.lastId });
+const earlier = await chat.getMessages(threadId, { before: page.firstId });
+```
+
+> Cursors address stored rows, so use `page.firstId` / `page.lastId` — not an id
+> from `data`.
+
+### Stopping a reply
+
+```typescript
+let taskId;
+chat.stream('Write a long essay', {
+  onToken: (d, full) => render(full),
+  onDone: (result) => { taskId = result.taskId; },
+});
+
+await chat.cancel(taskId);   // tells the server to stop
+```
+
+Aborting client-side only stops you *reading* the reply — the model keeps
+generating and keeps consuming tokens until `cancel()` is called. For an
+immediate UI response, do both:
+
+```typescript
+let controller;
+const promise = chat.stream(prompt, {
+  getAbortController: (c) => { controller = c; },
+  onDone: (r) => { taskId = r.taskId; },
+});
+controller.abort();          // UI stops now
+await chat.cancel(taskId);   // server stops too
+```
+
+### App config
+
+One call for everything needed to render a client — the greeting configured in
+the console, starter questions, and which features are enabled:
+
+```typescript
+const config = await chat.getConfig();
+
+console.log(config.greeting);            // opening message from the console
+console.log(config.starterQuestions);    // suggested prompts
+console.log(config.features);            // { speechToText, textToSpeech,
+                                         //   fileUpload, citations, … }
+console.log(config.appearance?.title);   // header title and icon
+```
+
+Use `features` to decide which buttons to show rather than guessing.
+
 ### Chat API
 
 | method | returns |
 |---|---|
 `send(prompt, options?)` | `Promise<ChatResult>` — the complete reply |
 `stream(prompt, options?)` | `Promise<ChatResult>` — plus `onToken` per token |
+`listThreads(options?)` | `Promise<Page<Thread>>` — past conversations |
+`getMessages(threadId, options?)` | `Promise<Page<ThreadMessage>>` — one transcript |
+`cancel(taskId)` | `Promise<void>` — stop a reply server-side |
+`getConfig()` | `Promise<AppConfig>` — greeting, starter questions, features |
 `listModels()` | `Promise<ModelInfo[]>` |
 `destroy()` | aborts in-flight streams |
 
@@ -194,13 +269,17 @@ latest, so a future release would reach your live site without you upgrading.
 
 ## Endpoints used
 
-The whole SDK talks to four routes:
+The whole SDK talks to eight routes:
 
 ```
-POST /chat/completions        chat — send a message, stream the reply
-GET  /models                  chat — list the model this key reaches
-POST /tokens/generate         voice — get a LiveKit room token
-POST /call-control/end-call   voice — end a call
+POST /chat/completions              chat  — send a message, stream the reply
+GET  /models                        chat  — list the model this key reaches
+GET  /threads                       chat  — past conversations
+GET  /threads/{id}/messages         chat  — one transcript
+POST /tasks/{task_id}/cancel        chat  — stop a reply
+GET  /config                        chat  — greeting, starter questions, features
+POST /tokens/generate               voice — get a LiveKit room token
+POST /call-control/end-call         voice — end a call
 ```
 
 The chat endpoint is **OpenAI-compatible**, so you can also point the official
@@ -235,9 +314,12 @@ move. If you do:
 — | `chat.send(q)` for a plain promise |
 `onMessage(text, id, convId)` | `onToken(delta, full)`; ids are on the result |
 `onMessageEnd(meta)` | `onDone(result)` |
-`chat.getAppParams()` | removed — set `welcomeMessage` in config |
+`chat.getAppParams()` | `chat.getConfig()` |
+`chat.stopResponse(taskId)` | `chat.cancel(taskId)` |
+`chat.getConversations()` | `chat.listThreads()` |
+`chat.getMessages(convId)` | `chat.getMessages(threadId)` — now returns one message per turn side |
 `onThought` / `onFile` / `onTTSChunk` | not available |
-conversation list / feedback / speech-to-text | not available |
+feedback / suggested questions / speech-to-text | not available |
 
 ---
 

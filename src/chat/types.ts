@@ -113,7 +113,141 @@ export interface ModelInfo {
   owned_by: string;
 }
 
+// ─── History ────────────────────────────────────────────────────────────────
+
+/** A past conversation. Titles are generated server-side from the contents. */
+export interface Thread {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ThreadMessage {
+  id: string;
+  threadId: string;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: number;
+  citations?: RetrieverResource[];
+  /** Set when the reply failed — explains an empty `content`. */
+  error?: string;
+}
+
+export interface ListOptions {
+  /** Page size, 1–100. Defaults to 20. */
+  limit?: number;
+  signal?: AbortSignal;
+}
+
+export interface ThreadListOptions extends ListOptions {
+  /** Pass the previous page's `lastId` to fetch older threads. */
+  after?: string;
+}
+
+export interface MessageListOptions extends ListOptions {
+  /** Pass the previous page's `firstId` to walk further back. */
+  before?: string;
+}
+
+export interface Page<T> {
+  data: T[];
+  hasMore: boolean;
+  limit: number;
+  /** Cursors address stored rows — pass these back, not ids from `data`. */
+  firstId?: string;
+  lastId?: string;
+}
+
+// ─── App config ─────────────────────────────────────────────────────────────
+
+export interface AppFeatures {
+  speechToText: boolean;
+  textToSpeech: boolean;
+  fileUpload: boolean;
+  citations: boolean;
+  suggestedQuestionsAfterAnswer: boolean;
+}
+
+export interface AppAppearance {
+  title?: string;
+  icon?: string;
+  iconBackground?: string;
+  defaultLanguage?: string;
+  copyright?: string;
+  privacyPolicy?: string;
+  customDisclaimer?: string;
+}
+
+/** Everything needed to render a client, in one call. */
+export interface AppConfig {
+  name?: string;
+  description?: string;
+  /** The opening message, configured in the console. */
+  greeting?: string;
+  /** Suggested prompts to show alongside the greeting. */
+  starterQuestions: string[];
+  inputFields: Array<Record<string, any>>;
+  features: AppFeatures;
+  limits?: Record<string, any>;
+  appearance?: AppAppearance;
+}
+
 // ─── Wire formats (internal) ────────────────────────────────────────────────
+
+export interface RawThread {
+  id: string;
+  object?: string;
+  title?: string;
+  created_at?: number;
+  updated_at?: number;
+}
+
+export interface RawThreadMessage {
+  id: string;
+  object?: string;
+  thread_id?: string;
+  role?: 'user' | 'assistant';
+  content?: string;
+  created_at?: number;
+  citations?: RetrieverResource[];
+  error?: string;
+}
+
+export interface RawPage<T> {
+  object?: string;
+  data?: T[];
+  has_more?: boolean;
+  limit?: number;
+  first_id?: string | null;
+  last_id?: string | null;
+}
+
+export interface RawAppConfig {
+  object?: string;
+  name?: string;
+  description?: string;
+  greeting?: string;
+  starter_questions?: string[];
+  input_fields?: Array<Record<string, any>>;
+  features?: {
+    speech_to_text?: boolean;
+    text_to_speech?: boolean;
+    file_upload?: boolean;
+    citations?: boolean;
+    suggested_questions_after_answer?: boolean;
+  };
+  limits?: Record<string, any>;
+  appearance?: {
+    title?: string;
+    icon?: string;
+    icon_background?: string;
+    default_language?: string;
+    copyright?: string;
+    privacy_policy?: string;
+    custom_disclaimer?: string;
+  };
+}
 
 export interface RawStreamChunk {
   id?: string;

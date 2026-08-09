@@ -13,6 +13,16 @@ import type {
   ModelListResponse,
   RawStreamChunk,
   RawCompletion,
+  Thread,
+  ThreadMessage,
+  ThreadListOptions,
+  MessageListOptions,
+  Page,
+  AppConfig,
+  RawThread,
+  RawThreadMessage,
+  RawPage,
+  RawAppConfig,
 } from './types';
 
 const DEFAULT_MODEL = 'xpectrum';
@@ -202,6 +212,117 @@ export class XpectrumChat {
       usage: raw.usage,
       retrieverResources: raw.retriever_resources,
       finishReason: choice?.finish_reason || undefined,
+    };
+  }
+
+  // ─── History ────────────────────────────────────────────────────────────
+
+  /**
+   * List past conversations, most recently updated first.
+   *
+   * Titles are generated server-side, so they are ready to show in a sidebar.
+   * To page further back, pass the previous page's `lastId` as `after`.
+   */
+  async listThreads(options: ThreadListOptions = {}): Promise<Page<Thread>> {
+    const res = await this.http.get<RawPage<RawThread>>(
+      '/threads',
+      { user: this.config.user, limit: options.limit, after: options.after },
+      { signal: options.signal },
+    );
+
+    return {
+      data: (res.data || []).map((t) => ({
+        id: t.id,
+        title: t.title || '',
+        createdAt: t.created_at || 0,
+        updatedAt: t.updated_at || 0,
+      })),
+      hasMore: !!res.has_more,
+      limit: res.limit ?? 0,
+      firstId: res.first_id ?? undefined,
+      lastId: res.last_id ?? undefined,
+    };
+  }
+
+  /**
+   * Load one conversation's transcript, oldest message first.
+   *
+   * To page further back, pass the previous page's `firstId` as `before`.
+   */
+  async getMessages(threadId: string, options: MessageListOptions = {}): Promise<Page<ThreadMessage>> {
+    const res = await this.http.get<RawPage<RawThreadMessage>>(
+      `/threads/${threadId}/messages`,
+      { user: this.config.user, limit: options.limit, before: options.before },
+      { signal: options.signal },
+    );
+
+    return {
+      data: (res.data || []).map((m) => ({
+        id: m.id,
+        threadId: m.thread_id || threadId,
+        role: m.role || 'assistant',
+        content: m.content || '',
+        createdAt: m.created_at || 0,
+        citations: m.citations,
+        error: m.error,
+      })),
+      hasMore: !!res.has_more,
+      limit: res.limit ?? 0,
+      firstId: res.first_id ?? undefined,
+      lastId: res.last_id ?? undefined,
+    };
+  }
+
+  // ─── Control ────────────────────────────────────────────────────────────
+
+  /**
+   * Stop an in-flight reply on the server.
+   *
+   * Aborting the stream client-side only stops *reading* it — the model keeps
+   * generating and keeps consuming tokens until this is called. Pass the
+   * `taskId` from a `ChatResult` or from `onDone`.
+   */
+  async cancel(taskId: string): Promise<void> {
+    await this.http.post(`/tasks/${taskId}/cancel`, { user: this.config.user || 'sdk-user' });
+  }
+
+  // ─── App config ─────────────────────────────────────────────────────────
+
+  /**
+   * Fetch the app's greeting, starter questions and feature flags.
+   *
+   * One request replaces what would otherwise be several, and lets a client
+   * render itself from what was configured in the console rather than
+   * hardcoding it.
+   */
+  async getConfig(options: { signal?: AbortSignal } = {}): Promise<AppConfig> {
+    const raw = await this.http.get<RawAppConfig>('/config', undefined, { signal: options.signal });
+    const features = raw.features || {};
+    const appearance = raw.appearance || {};
+
+    return {
+      name: raw.name,
+      description: raw.description,
+      greeting: raw.greeting || undefined,
+      starterQuestions: raw.starter_questions || [],
+      inputFields: raw.input_fields || [],
+      features: {
+        speechToText: !!features.speech_to_text,
+        textToSpeech: !!features.text_to_speech,
+        fileUpload: !!features.file_upload,
+        citations: !!features.citations,
+        suggestedQuestionsAfterAnswer: !!features.suggested_questions_after_answer,
+      },
+      limits: raw.limits,
+      appearance: {
+        title: appearance.title,
+        icon: appearance.icon,
+        iconBackground: appearance.icon_background,
+        defaultLanguage: appearance.default_language,
+        copyright: appearance.copyright,
+        privacyPolicy: appearance.privacy_policy,
+        customDisclaimer: appearance.custom_disclaimer,
+      },
     };
   }
 

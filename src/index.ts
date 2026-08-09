@@ -27,6 +27,17 @@ export type {
   ChatError,
   RetrieverResource,
   ModelInfo,
+  // History
+  Thread,
+  ThreadMessage,
+  ThreadListOptions,
+  MessageListOptions,
+  ListOptions,
+  Page,
+  // App config
+  AppConfig,
+  AppFeatures,
+  AppAppearance,
 } from './chat/types';
 
 // ─── Voice ───────────────────────────────────────────────────────────────────

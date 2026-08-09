@@ -62,7 +62,10 @@ export class ChatWidget {
   private isOpen = false;
   private messages: WidgetMessage[] = [];
   private conversationId: string | null = null;
-  private welcomeShown = false;
+  private opened = false;
+  private streaming = false;
+  private currentTaskId: string | null = null;
+  private abortCurrent: AbortController | null = null;
 
   constructor(config: ChatWidgetConfig) {
     this.config = { ...DEFAULT_CONFIG, ...config } as any;
@@ -72,6 +75,7 @@ export class ChatWidget {
       apiKey: config.apiKey,
       user: config.user,
     });
+    this.conversationId = this.loadConversationId();
     this.mount();
   }
 
@@ -80,7 +84,11 @@ export class ChatWidget {
     this.windowEl.style.display = 'flex';
     this.isOpen = true;
     this.updateButtonIcon();
-    this.showWelcomeMessage();
+    // First open only — restore the last conversation, or greet
+    if (!this.opened) {
+      this.opened = true;
+      this.restoreOrGreet();
+    }
   }
 
   close(): void {
@@ -165,7 +173,7 @@ export class ChatWidget {
     input?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        this.handleSend(input);
+        if (!this.streaming) this.handleSend(input);
       }
     });
 
@@ -175,9 +183,22 @@ export class ChatWidget {
       input.style.height = Math.min(input.scrollHeight, 120) + 'px';
     });
 
-    sendBtn?.addEventListener('click', () => this.handleSend(input));
+    // The same button sends, then stops while a reply is streaming
+    sendBtn?.addEventListener('click', () => {
+      if (this.streaming) this.stopGeneration();
+      else this.handleSend(input);
+    });
 
     return win;
+  }
+
+  /** Swap the send button between "send" and "stop" as streaming starts/ends. */
+  private updateSendButton(): void {
+    const btn = this.windowEl?.querySelector('.xp-chat-send-btn') as HTMLButtonElement | null;
+    if (!btn) return;
+    btn.innerHTML = this.streaming ? this.getStopIcon() : this.getSendIcon();
+    btn.setAttribute('aria-label', this.streaming ? 'Stop' : 'Send');
+    btn.setAttribute('title', this.streaming ? 'Stop generating' : 'Send');
   }
 
   // ─── Private: Messaging ─────────────────────────────────────────────────
@@ -206,13 +227,20 @@ export class ChatWidget {
     this.messages.push(assistantMsg);
     this.renderMessages();
 
+    this.streaming = true;
+    this.updateSendButton();
+
     const options: StreamOptions = {
       conversationId: this.conversationId || undefined,
+      getAbortController: (controller) => {
+        this.abortCurrent = controller;
+      },
       onToken: (_delta, full) => {
         assistantMsg.content = full;
         this.renderMessages();
       },
-      onDone: () => {
+      onDone: (result) => {
+        if (result.taskId) this.currentTaskId = result.taskId;
         assistantMsg.isStreaming = false;
         this.renderMessages();
       },
@@ -224,26 +252,113 @@ export class ChatWidget {
     };
 
     const result = await this.chat.stream(query, options);
-    // Keep the conversation going on the next message
-    if (result.conversationId) this.conversationId = result.conversationId;
+
+    // Keep the conversation going on the next message, and across reloads
+    if (result.conversationId) {
+      this.conversationId = result.conversationId;
+      this.saveConversationId(result.conversationId);
+    }
+    if (result.taskId) this.currentTaskId = result.taskId;
+
+    this.streaming = false;
+    this.abortCurrent = null;
+    assistantMsg.isStreaming = false;
+    this.renderMessages();
+    this.updateSendButton();
   }
 
   /**
-   * Show the welcome message. Comes from config only — the widget makes no
-   * extra API call to fetch it.
+   * Stop the reply in progress.
+   *
+   * Aborts locally so the UI stops immediately, then tells the server — without
+   * the second half the model keeps generating and keeps consuming tokens.
    */
-  private showWelcomeMessage(): void {
-    if (this.welcomeShown) return;
-    this.welcomeShown = true;
+  private stopGeneration(): void {
+    this.abortCurrent?.abort();
+    this.abortCurrent = null;
+    this.streaming = false;
 
-    const welcomeMsg = this.config.welcomeMessage;
-    if (welcomeMsg && this.messages.length === 0) {
-      this.messages.push({
-        id: 'welcome',
-        role: 'assistant',
-        content: welcomeMsg,
-      });
+    const taskId = this.currentTaskId;
+    this.currentTaskId = null;
+    if (taskId) this.chat.cancel(taskId).catch(() => {});
+
+    const last = this.messages[this.messages.length - 1];
+    if (last && last.isStreaming) last.isStreaming = false;
+
+    this.renderMessages();
+    this.updateSendButton();
+  }
+
+  // ─── Private: Opening state ────────────────────────────────────────────
+
+  /**
+   * Restore the previous conversation if there is one, otherwise greet.
+   *
+   * The greeting comes from the console via `GET /config`, so whoever
+   * configures the agent controls it. `welcomeMessage` in config is used as a
+   * fallback when the app has no opening statement set.
+   */
+  private async restoreOrGreet(): Promise<void> {
+    if (this.conversationId) {
+      try {
+        const page = await this.chat.getMessages(this.conversationId, { limit: 50 });
+        if (page.data.length) {
+          this.messages = page.data.map((m) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+          }));
+          this.renderMessages();
+          return;
+        }
+      } catch {
+        // Thread is gone or unreachable — fall through and start fresh
+        this.conversationId = null;
+        this.saveConversationId(null);
+      }
+    }
+
+    await this.showGreeting();
+  }
+
+  private async showGreeting(): Promise<void> {
+    let greeting = this.config.welcomeMessage;
+
+    try {
+      const appConfig = await this.chat.getConfig();
+      greeting = appConfig.greeting || greeting;
+    } catch {
+      // Config is optional — fall back to whatever the embed supplied
+    }
+
+    if (greeting && this.messages.length === 0) {
+      this.messages.push({ id: 'welcome', role: 'assistant', content: greeting });
       this.renderMessages();
+    }
+  }
+
+  // ─── Private: Persistence ──────────────────────────────────────────────
+
+  /** Scoped per app and user, so two widgets on one page never collide. */
+  private storageKey(): string {
+    return `xpectrum:thread:${this.config.baseUrl}:${this.config.user || 'anon'}`;
+  }
+
+  private loadConversationId(): string | null {
+    try {
+      return window.localStorage.getItem(this.storageKey());
+    } catch {
+      // Storage can be unavailable (private mode, blocked cookies)
+      return null;
+    }
+  }
+
+  private saveConversationId(id: string | null): void {
+    try {
+      if (id) window.localStorage.setItem(this.storageKey(), id);
+      else window.localStorage.removeItem(this.storageKey());
+    } catch {
+      // Non-fatal — the conversation just will not survive a reload
     }
   }
 
@@ -291,6 +406,12 @@ export class ChatWidget {
   private getCloseIcon(): string {
     return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M18 6L6 18M6 6l12 12" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`;
+  }
+
+  private getStopIcon(): string {
+    return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor"/>
     </svg>`;
   }
 
