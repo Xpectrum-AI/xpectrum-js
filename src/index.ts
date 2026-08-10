@@ -4,6 +4,8 @@ export type { HttpClientConfig } from './core/http-client';
 export { parseSSEStream } from './core/sse-parser';
 export type { SSECallbacks } from './core/sse-parser';
 export { EventEmitter } from './core/event-emitter';
+/** Render an assistant reply's Markdown to safe HTML — useful when building your own UI. */
+export { renderMarkdown } from './core/markdown';
 export type {
   RequestOptions,
   ApiError,

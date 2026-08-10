@@ -1,4 +1,5 @@
 import { XpectrumChat } from '../chat/chat-client';
+import { renderMarkdown } from '../core/markdown';
 import type { StreamOptions, Thread } from '../chat/types';
 
 export interface ChatWidgetConfig {
@@ -498,14 +499,16 @@ export class ChatWidget {
     }
 
     container.innerHTML = this.messages
-      .map(
-        (msg) => `
+      .map((msg) => {
+        // Assistant replies are Markdown; what the user typed is literal text
+        const body =
+          msg.role === 'assistant' ? renderMarkdown(msg.content) : this.escapeHtml(msg.content);
+        const cursor = msg.isStreaming ? '<span class="xp-typing-cursor">|</span>' : '';
+        return `
       <div class="xp-msg xp-msg-${msg.role}">
-        <div class="xp-msg-bubble xp-msg-bubble-${msg.role}">
-          ${this.escapeHtml(msg.content)}${msg.isStreaming ? '<span class="xp-typing-cursor">|</span>' : ''}
-        </div>
-      </div>`,
-      )
+        <div class="xp-msg-bubble xp-msg-bubble-${msg.role}">${body}${cursor}</div>
+      </div>`;
+      })
       .join('');
 
     container.scrollTop = container.scrollHeight;
@@ -734,6 +737,57 @@ export class ChatWidget {
       .xp-msg-bubble-assistant { background: var(--xp-surface); color: var(--xp-text); }
       .xp-typing-cursor { animation: xp-blink 1s step-end infinite; }
       @keyframes xp-blink { 50% { opacity: 0; } }
+
+      /* ─── Rendered markdown ─── */
+      .xp-md-p { margin: 0 0 8px; }
+      .xp-md-p:last-child { margin-bottom: 0; }
+      .xp-md-h { margin: 12px 0 6px; font-weight: 600; line-height: 1.3; }
+      .xp-md-h:first-child { margin-top: 0; }
+      h3.xp-md-h { font-size: calc(var(--xp-size) + 3px); }
+      h4.xp-md-h { font-size: calc(var(--xp-size) + 1px); }
+      h5.xp-md-h, h6.xp-md-h { font-size: var(--xp-size); }
+
+      .xp-msg-bubble a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+      .xp-msg-bubble-assistant a { color: var(--xp-primary); }
+      .xp-msg-bubble a:hover { opacity: 0.8; }
+
+      .xp-md-list { margin: 0 0 8px; padding-left: 20px; }
+      .xp-md-list:last-child { margin-bottom: 0; }
+      .xp-md-list li { margin: 2px 0; }
+
+      .xp-md-code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: calc(var(--xp-size) - 1px);
+        background: rgba(127,127,127,0.18);
+        padding: 1px 5px; border-radius: 4px;
+      }
+      .xp-md-pre {
+        margin: 8px 0; padding: 10px 12px;
+        background: rgba(127,127,127,0.14);
+        border-radius: calc(var(--xp-radius) - 6px);
+        overflow-x: auto;
+      }
+      .xp-md-pre:last-child { margin-bottom: 0; }
+      .xp-md-pre code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: calc(var(--xp-size) - 1px);
+        white-space: pre; background: none; padding: 0;
+      }
+
+      .xp-md-quote {
+        margin: 8px 0; padding: 2px 0 2px 10px;
+        border-left: 3px solid var(--xp-border);
+        color: var(--xp-muted);
+      }
+      .xp-md-hr { margin: 12px 0; border: 0; border-top: 1px solid var(--xp-border); }
+
+      /* Thumbnails — capped so a large image never blows out the bubble */
+      .xp-md-img {
+        max-width: 100%; max-height: 220px;
+        width: auto; height: auto;
+        border-radius: calc(var(--xp-radius) - 6px);
+        margin: 6px 0; display: block;
+      }
 
       /* ─── Input ─── */
       .xp-chat-input-area {
