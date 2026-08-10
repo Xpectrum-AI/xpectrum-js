@@ -1,5 +1,6 @@
 import { HttpClient, XpectrumApiError } from '../core/http-client';
 import { parseSSEStream } from '../core/sse-parser';
+import { getAnonymousId, clearAnonymousId } from '../core/anonymous-id';
 import type {
   XpectrumChatConfig,
   Prompt,
@@ -70,6 +71,28 @@ export class XpectrumChat {
     });
   }
 
+  // ─── Identity ───────────────────────────────────────────────────────────
+
+  /**
+   * The identifier every request is attributed to — the configured `user`, or
+   * a persisted anonymous id when none was given.
+   */
+  getUser(): string {
+    return this.config.user || getAnonymousId(this.config.baseUrl, this.config.anonymousTtlDays);
+  }
+
+  /**
+   * Forget the anonymous identity and issue a new one, so the next request
+   * starts with an empty history. Use it for "clear my history" or on logout.
+   *
+   * Does nothing when `user` was configured explicitly — that identity is
+   * yours to change, not the SDK's.
+   */
+  resetUser(): void {
+    if (this.config.user) return;
+    clearAnonymousId(this.config.baseUrl);
+  }
+
   // ─── Requests ───────────────────────────────────────────────────────────
 
   private buildBody(prompt: Prompt, options: ChatOptions, stream: boolean): Record<string, any> {
@@ -82,7 +105,7 @@ export class XpectrumChat {
     // Xpectrum extension fields — ignored by standard OpenAI clients
     const inputs = options.inputs || this.config.inputs;
     if (inputs) body.inputs = inputs;
-    if (this.config.user) body.user = this.config.user;
+    body.user = this.getUser();
     if (options.conversationId) body.conversation_id = options.conversationId;
     if (options.files?.length) body.files = options.files;
     if (options.channel) body.channel = options.channel;
@@ -226,7 +249,7 @@ export class XpectrumChat {
   async listThreads(options: ThreadListOptions = {}): Promise<Page<Thread>> {
     const res = await this.http.get<RawPage<RawThread>>(
       '/threads',
-      { user: this.config.user, limit: options.limit, after: options.after },
+      { user: this.getUser(), limit: options.limit, after: options.after },
       { signal: options.signal },
     );
 
@@ -252,7 +275,7 @@ export class XpectrumChat {
   async getMessages(threadId: string, options: MessageListOptions = {}): Promise<Page<ThreadMessage>> {
     const res = await this.http.get<RawPage<RawThreadMessage>>(
       `/threads/${threadId}/messages`,
-      { user: this.config.user, limit: options.limit, before: options.before },
+      { user: this.getUser(), limit: options.limit, before: options.before },
       { signal: options.signal },
     );
 
@@ -283,7 +306,7 @@ export class XpectrumChat {
    * `taskId` from a `ChatResult` or from `onDone`.
    */
   async cancel(taskId: string): Promise<void> {
-    await this.http.post(`/tasks/${taskId}/cancel`, { user: this.config.user || 'sdk-user' });
+    await this.http.post(`/tasks/${taskId}/cancel`, { user: this.getUser() });
   }
 
   // ─── App config ─────────────────────────────────────────────────────────

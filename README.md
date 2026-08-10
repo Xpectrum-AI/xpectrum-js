@@ -82,6 +82,41 @@ chat.stream('Long question…', {
 chat.destroy();   // aborts every in-flight stream
 ```
 
+### Who the conversation belongs to
+
+Each unique `user` value gets its own private history. **Omit it and the SDK
+issues a random anonymous id**, stored per browser, so a visitor keeps their
+history without logging in:
+
+```typescript
+// Logged in — use your own account id, set on your server
+new XpectrumChat({ baseUrl, apiKey, user: session.userId });
+
+// Anonymous — the SDK generates and persists `anon_<uuid>` for you
+new XpectrumChat({ baseUrl, apiKey });
+
+chat.getUser();     // 'anon_1a8e8643-2668-4f3e-8b2c-7222d0b872c3'
+chat.resetUser();   // forget it and start fresh — "clear my history" / logout
+```
+
+The id lives in `localStorage`, scoped to the API base URL so two apps on one
+page never share an identity. It expires after 30 days of inactivity
+(`anonymousTtlDays` to change), and the clock resets on every use, so an active
+visitor is never forgotten.
+
+> **Don't use an IP address for this.** Addresses are shared behind NAT — an
+> office, a café, a mobile carrier — so everyone on one connection would land in
+> the same history and read each other's conversations. They also change when a
+> network changes, silently losing history, and count as personal data. A random
+> id is unique per visitor and unguessable, which is what keeps one person's
+> history private from another's.
+
+> **For logged-in users, set `user` on your server** from your own session —
+> never from something the browser sent you. The API key is the only thing the
+> server verifies, so a browser that can choose `user` freely can read any
+> user's history. Anonymous ids are self-protecting because they're random;
+> account ids usually aren't.
+
 ### Past conversations
 
 History lives server-side. List a user's previous conversations, load one, and
@@ -157,6 +192,8 @@ Use `features` to decide which buttons to show rather than guessing.
 
 | method | returns |
 |---|---|
+`getUser()` | `string` — the identity requests are attributed to |
+`resetUser()` | `void` — issue a fresh anonymous identity |
 `send(prompt, options?)` | `Promise<ChatResult>` — the complete reply |
 `stream(prompt, options?)` | `Promise<ChatResult>` — plus `onToken` per token |
 `listThreads(options?)` | `Promise<Page<Thread>>` — past conversations |

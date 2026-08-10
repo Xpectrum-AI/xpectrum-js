@@ -31,11 +31,63 @@
     <input id="chatKey" placeholder="app-..." />
     <label>Welcome message</label>
     <input id="chatWelcome" value="Hi! How can I help?" />
+
+    <label>Logo URL (optional — shown in the header)</label>
+    <input id="chatLogo" placeholder="https://…/logo.png  or  data:image/png;base64,…" />
+
+    <label>Header title (blank = use the app's configured title)</label>
+    <input id="chatTitle" placeholder="Support" />
+
+    <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+      <div style="flex:1;min-width:120px">
+        <label>Primary colour</label>
+        <input id="chatColor" type="color" value="#7C3AED" style="height:2.4rem;padding:.2rem" />
+      </div>
+      <div style="flex:1;min-width:120px">
+        <label>Font size (px)</label>
+        <input id="chatFontSize" type="number" value="14" min="10" max="22" />
+      </div>
+      <div style="flex:1;min-width:120px">
+        <label>Corner radius (px)</label>
+        <input id="chatRadius" type="number" value="12" min="0" max="28" />
+      </div>
+    </div>
+
+    <label>Font family</label>
+    <input id="chatFont" placeholder="Georgia, serif" />
+
+    <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+      <div style="flex:1;min-width:120px">
+        <label>Theme</label>
+        <select id="chatTheme" style="width:100%;padding:.45rem;border:1px solid #ccc;border-radius:6px">
+          <option value="light">light</option>
+          <option value="dark">dark</option>
+        </select>
+      </div>
+      <div style="flex:1;min-width:120px">
+        <label>Position</label>
+        <select id="chatPosition" style="width:100%;padding:.45rem;border:1px solid #ccc;border-radius:6px">
+          <option value="bottom-right">bottom-right</option>
+          <option value="bottom-left">bottom-left</option>
+        </select>
+      </div>
+      <div style="flex:1;min-width:120px">
+        <label>Show history</label>
+        <select id="chatHistory" style="width:100%;padding:.45rem;border:1px solid #ccc;border-radius:6px">
+          <option value="yes">yes</option>
+          <option value="no">no</option>
+        </select>
+      </div>
+    </div>
+
     <button id="mountChat">Mount chat widget</button>
+    <button id="remountChat" style="background:#555">Remount with new settings</button>
     <p style="font-size:.85rem;color:#666">
-      A purple bubble appears bottom-right. Open it, send a message, and watch the
-      reply stream in. Check the Network tab — you should see exactly one request,
-      to <code>/chat/completions</code>.
+      Opens on your past conversations with a <b>New chat</b> button beneath them.
+      Pick one to load its transcript; the header then shows back and new-chat
+      controls. Check the Network tab — only <code>/config</code>,
+      <code>/threads</code>, <code>/threads/{id}/messages</code> and
+      <code>/chat/completions</code>.
     </p>
   </fieldset>
 
@@ -66,14 +118,29 @@
     const $ = (id) => document.getElementById(id);
     const log = (msg) => { $('out').textContent += msg + '\n'; };
 
-    $('mountChat').onclick = () => {
-      new ChatWidget({
+    let chatWidget = null;
+
+    const mountChatWidget = () => {
+      chatWidget?.destroy();
+      chatWidget = new ChatWidget({
         baseUrl: $('chatBase').value.trim(),
         apiKey: $('chatKey').value.trim(),
-        welcomeMessage: $('chatWelcome').value,
+        user: 'browser-test',
+        welcomeMessage: $('chatWelcome').value || undefined,
+        logo: $('chatLogo').value.trim() || undefined,
+        title: $('chatTitle').value.trim() || undefined,
+        primaryColor: $('chatColor').value,
+        fontSize: Number($('chatFontSize').value) || 14,
+        borderRadius: Number($('chatRadius').value),
+        fontFamily: $('chatFont').value.trim() || undefined,
+        theme: $('chatTheme').value,
+        position: $('chatPosition').value,
+        showHistory: $('chatHistory').value === 'yes',
       });
-      $('mountChat').disabled = true;
     };
+
+    $('mountChat').onclick = mountChatWidget;
+    $('remountChat').onclick = mountChatWidget;
 
     $('mountVoice').onclick = () => {
       new VoiceWidget({

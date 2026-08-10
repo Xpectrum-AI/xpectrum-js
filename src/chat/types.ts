@@ -7,8 +7,21 @@ export interface XpectrumChatConfig {
   apiKey: string;
   /** Model name sent with each request. Informational only — the API key selects the app. */
   model?: string;
-  /** Optional user identifier — each unique user gets their own conversation history */
+  /**
+   * Who this conversation belongs to. Each unique value gets its own history.
+   *
+   * Omit it and the SDK issues a random anonymous id, stored per browser, so a
+   * visitor keeps their history without logging in. Set it from your own
+   * authenticated session once they do — never from something the browser sent
+   * you, or one user could read another's history.
+   */
   user?: string;
+  /**
+   * How long an auto-generated anonymous id survives, in days. Defaults to 30.
+   * The clock resets on every use, so an active visitor is never forgotten.
+   * Ignored when `user` is supplied.
+   */
+  anonymousTtlDays?: number;
   /** Default input variables to send with every request */
   inputs?: Record<string, any>;
 }
