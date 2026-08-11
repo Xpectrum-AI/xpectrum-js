@@ -1,16 +1,16 @@
 // ─── Voice Configuration ────────────────────────────────────────────────────
 
 export interface XpectrumVoiceConfig {
-  /** URL of the Xpectrum voice server (FastAPI) */
+  /** Xpectrum API base URL — same one used for chat (e.g. 'https://app.yourserver.com/v1') */
   baseUrl: string;
-  /** API key for authentication (x-api-key header) */
+  /** Your app's API key. The voice agent is determined by this key. */
   apiKey: string;
-  /** Agent name to connect to (e.g. 'my-sales-agent') */
-  agentName: string;
+  /** @deprecated No longer used — the voice agent is determined by the API key. */
+  agentName?: string;
 }
 
 // ─── Token Response ─────────────────────────────────────────────────────────
-// Matches POST /tokens/generate response from FastAPI server
+// Matches the POST /voice/tokens/generate response
 
 export interface TokenResponse {
   token: string;

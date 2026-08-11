@@ -6,9 +6,9 @@
  * Usage:
  *   <script>
  *     window.XpectrumVoiceConfig = {
- *       apiKey: 'YOUR_API_KEY',
- *       agentName: 'my-sales-agent',
- *       baseUrl: 'https://voice.yourserver.com',
+ *       apiKey: 'app-...',                          // the app's API key
+ *       baseUrl: 'https://app.yourserver.com/v1',   // same API base as chat
+ *       // The voice agent is determined by the API key.
  *       // Optional:
  *       position: 'bottom-right',    // 'bottom-right' | 'bottom-left'
  *       buttonColor: '#7C3AED',
@@ -34,14 +34,10 @@
     console.error(LOG_PREFIX + CONFIG_KEY + '.apiKey is required.');
     return;
   }
-  if (!config.agentName) {
-    console.error(LOG_PREFIX + CONFIG_KEY + '.agentName is required — the voice agent to call.');
-    return;
-  }
   // No sensible default exists — falling back to the page's own origin would
   // silently 404 every request against the host site.
   if (!config.baseUrl) {
-    console.error(LOG_PREFIX + CONFIG_KEY + '.baseUrl is required — your voice server URL.');
+    console.error(LOG_PREFIX + CONFIG_KEY + '.baseUrl is required — your Xpectrum API base URL.');
     return;
   }
 
@@ -75,7 +71,6 @@
 
       new window.Xpectrum.VoiceWidget({
         apiKey: config.apiKey,
-        agentName: config.agentName,
         baseUrl: config.baseUrl,
         position: config.position || 'bottom-right',
         buttonColor: config.buttonColor || '#7C3AED',

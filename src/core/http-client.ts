@@ -50,7 +50,7 @@ async function toApiError(response: Response, fallbackCode = 'unknown_error'): P
 
 export interface HttpClientConfig {
   baseUrl: string;
-  /** Use 'api-key' for voice server (x-api-key header), 'bearer' for chat server */
+  /** Use 'api-key' for voice (x-api-key header), 'bearer' for chat */
   authMode: 'api-key' | 'bearer';
   /** The API key or Bearer token value */
   authValue: string;

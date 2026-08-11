@@ -8,11 +8,21 @@
  *     window.XpectrumChatConfig = {
  *       apiKey: 'YOUR_API_KEY',
  *       baseUrl: 'https://app.yourserver.com/v1',
- *       // Optional:
- *       position: 'bottom-right',    // 'bottom-right' | 'bottom-left'
- *       buttonColor: '#7C3AED',
- *       theme: 'light',              // 'light' | 'dark'
+ *       // Optional branding:
+ *       logo: 'https://yoursite.com/logo.png',
+ *       title: 'Acme Support',
  *       welcomeMessage: 'Hi! How can I help?',
+ *       inputPlaceholder: 'Ask us anything…',
+ *       // Optional theme:
+ *       theme: 'light',              // 'light' | 'dark' | 'auto'
+ *       primaryColor: '#7C3AED',
+ *       backgroundColor: '#ffffff',
+ *       textColor: '#111111',
+ *       fontFamily: 'Inter, sans-serif',
+ *       fontSize: 14,
+ *       borderRadius: 12,
+ *       // Optional layout:
+ *       position: 'bottom-right',    // 'bottom-right' | 'bottom-left'
  *     };
  *   </script>
  *   <script src="https://unpkg.com/xpectrum@1.0.0/dist/chat-embed.min.js" defer></script>
@@ -75,15 +85,29 @@
       new window.Xpectrum.ChatWidget({
         apiKey: config.apiKey,
         baseUrl: config.baseUrl,
-        position: config.position || 'bottom-right',
-        buttonColor: config.buttonColor || '#7C3AED',
-        buttonSize: config.buttonSize || 48,
-        theme: config.theme || 'light',
-        zIndex: config.zIndex || 2147483647,
-        welcomeMessage: config.welcomeMessage,
         user: config.user,
+        anonymousTtlDays: config.anonymousTtlDays,
+        // Branding
+        logo: config.logo,
+        title: config.title,
+        welcomeMessage: config.welcomeMessage,
+        inputPlaceholder: config.inputPlaceholder,
+        // Layout
+        position: config.position || 'bottom-right',
+        buttonSize: config.buttonSize || 48,
         windowWidth: config.windowWidth || 400,
         windowHeight: config.windowHeight || 600,
+        zIndex: config.zIndex || 2147483647,
+        // Theme
+        theme: config.theme || 'light',
+        primaryColor: config.primaryColor,
+        onPrimaryColor: config.onPrimaryColor,
+        buttonColor: config.buttonColor,
+        backgroundColor: config.backgroundColor,
+        textColor: config.textColor,
+        fontFamily: config.fontFamily,
+        fontSize: config.fontSize,
+        borderRadius: config.borderRadius,
       });
     });
   }

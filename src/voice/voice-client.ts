@@ -15,8 +15,9 @@ type LiveKitTrack = any;
 /**
  * XpectrumVoice — Real-time voice client for Xpectrum AI agents.
  *
- * Connects to the Xpectrum voice server (FastAPI), acquires a LiveKit token,
- * and manages the WebRTC voice call lifecycle.
+ * Acquires a LiveKit token from the Xpectrum API (the same base URL and API
+ * key used for chat) and manages the WebRTC voice call lifecycle. The voice
+ * agent is determined by the API key.
  *
  * Requires `livekit-client` as a peer dependency:
  * ```bash
@@ -26,9 +27,8 @@ type LiveKitTrack = any;
  * @example
  * ```ts
  * const voice = new XpectrumVoice({
- *   baseUrl: 'https://voice.yourserver.com',
- *   apiKey: 'xpectrum_ai_sk_...',
- *   agentName: 'my-sales-agent',
+ *   baseUrl: 'https://app.yourserver.com/v1',
+ *   apiKey: 'app-...',
  * });
  *
  * await voice.connect({
@@ -40,7 +40,6 @@ type LiveKitTrack = any;
  */
 export class XpectrumVoice extends EventEmitter<VoiceEventMap> {
   private http: HttpClient;
-  private config: XpectrumVoiceConfig;
   private room: LiveKitRoom | null = null;
   private roomName: string | null = null;
   private connectionState: VoiceConnectionState = 'disconnected';
@@ -49,7 +48,6 @@ export class XpectrumVoice extends EventEmitter<VoiceEventMap> {
 
   constructor(config: XpectrumVoiceConfig) {
     super();
-    this.config = config;
     this.http = new HttpClient({
       baseUrl: config.baseUrl,
       authMode: 'api-key',
@@ -62,7 +60,7 @@ export class XpectrumVoice extends EventEmitter<VoiceEventMap> {
   /**
    * Start a voice call.
    *
-   * 1. Calls POST /tokens/generate?agent_name=xxx to get a LiveKit token
+   * 1. Calls POST /voice/tokens/generate to get a LiveKit token
    * 2. Connects to the LiveKit room via WebRTC
    * 3. Enables the microphone
    * 4. Listens for agent audio, transcription, and connection events
@@ -90,11 +88,10 @@ export class XpectrumVoice extends EventEmitter<VoiceEventMap> {
         }
       }
 
-      // Step 1: Get LiveKit token from voice server
+      // Step 1: Get a LiveKit token from the Xpectrum API
       const tokenData = await this.http.post<TokenResponse>(
-        '/tokens/generate',
+        '/voice/tokens/generate',
         null,
-        { params: { agent_name: this.config.agentName } },
       );
 
       this.roomName = tokenData.room_name;
@@ -133,7 +130,7 @@ export class XpectrumVoice extends EventEmitter<VoiceEventMap> {
    * End the voice call.
    *
    * Disconnects the LiveKit room and notifies the server via
-   * POST /call-control/end-call.
+   * POST /voice/call-control/end-call.
    */
   async disconnect(): Promise<void> {
     const roomName = this.roomName;
@@ -158,7 +155,7 @@ export class XpectrumVoice extends EventEmitter<VoiceEventMap> {
     // Tell the server the call is over
     if (roomName) {
       try {
-        await this.http.post('/call-control/end-call', {
+        await this.http.post('/voice/call-control/end-call', {
           room_name: roomName,
           reason: 'User hung up',
         });

@@ -2,11 +2,11 @@ import { XpectrumVoice } from '../voice/voice-client';
 import type { TranscriptionSegment, VoiceConnectionState } from '../voice/types';
 
 export interface VoiceWidgetConfig {
-  /** API key for voice server (x-api-key) */
+  /** Your app's API key — the voice agent is determined by this key */
   apiKey: string;
-  /** Agent name to connect to */
-  agentName: string;
-  /** Your Xpectrum voice server URL */
+  /** @deprecated No longer used — the voice agent is determined by the API key. */
+  agentName?: string;
+  /** Xpectrum API base URL — same one used for chat (e.g. 'https://app.yourserver.com/v1') */
   baseUrl: string;
   /** Container element to mount into (defaults to document.body) */
   container?: HTMLElement;
@@ -44,7 +44,7 @@ const DEFAULT_CONFIG: Partial<VoiceWidgetConfig> = {
  * with microphone controls and real-time transcription.
  */
 export class VoiceWidget {
-  private config: Required<Pick<VoiceWidgetConfig, 'apiKey' | 'agentName' | 'baseUrl'>> & VoiceWidgetConfig;
+  private config: Required<Pick<VoiceWidgetConfig, 'apiKey' | 'baseUrl'>> & VoiceWidgetConfig;
   private voice: XpectrumVoice;
   private container: HTMLElement;
   private buttonEl: HTMLElement | null = null;
@@ -61,7 +61,6 @@ export class VoiceWidget {
     this.voice = new XpectrumVoice({
       baseUrl: config.baseUrl,
       apiKey: config.apiKey,
-      agentName: config.agentName,
     });
     this.mount();
   }

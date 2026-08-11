@@ -6,12 +6,12 @@ export interface OmnichannelWidgetConfig {
   chatBaseUrl: string;
   /** API key for chat (used as Bearer token) */
   chatApiKey: string;
-  /** Voice server URL */
+  /** API base URL for voice (same as chat) */
   voiceBaseUrl: string;
-  /** API key for voice server */
+  /** API key for voice */
   apiKey: string;
-  /** Agent name for voice calls */
-  agentName: string;
+  /** @deprecated No longer used — the voice agent is determined by the API key. */
+  agentName?: string;
   /** Container element to mount into (defaults to document.body) */
   container?: HTMLElement;
   /** Widget position */
@@ -77,7 +77,6 @@ export class OmnichannelWidget {
     if (!this.voiceWidget) {
       this.voiceWidget = new VoiceWidget({
         apiKey: this.config.apiKey,
-        agentName: this.config.agentName,
         baseUrl: this.config.voiceBaseUrl,
         container: this.container,
         position: this.config.position || 'bottom-right',

@@ -71,13 +71,6 @@
           <option value="bottom-left">bottom-left</option>
         </select>
       </div>
-      <div style="flex:1;min-width:120px">
-        <label>Show history</label>
-        <select id="chatHistory" style="width:100%;padding:.45rem;border:1px solid #ccc;border-radius:6px">
-          <option value="yes">yes</option>
-          <option value="no">no</option>
-        </select>
-      </div>
     </div>
 
     <button id="mountChat">Mount chat widget</button>
@@ -93,15 +86,13 @@
 
   <fieldset>
     <legend>Voice widget</legend>
-    <label>Voice server (baseUrl)</label>
-    <input id="voiceBase" placeholder="https://voice.yourserver.com" />
-    <label>API key</label>
-    <input id="voiceKey" placeholder="xpectrum_ai_sk_..." />
-    <label>Agent name</label>
-    <input id="voiceAgent" placeholder="my-sales-agent" />
+    <label>API base URL (same as chat)</label>
+    <input id="voiceBase" placeholder="https://app.yourserver.com/v1" />
+    <label>API key (the voice agent is derived from it)</label>
+    <input id="voiceKey" placeholder="app-..." />
     <button id="mountVoice">Mount voice widget</button>
     <p style="font-size:.85rem;color:#666">
-      Requires microphone permission. Expect <code>/tokens/generate</code> in the
+      Requires microphone permission. Expect <code>/voice/tokens/generate</code> in the
       Network tab, then a WebRTC connection to LiveKit.
     </p>
   </fieldset>
@@ -135,7 +126,6 @@
         fontFamily: $('chatFont').value.trim() || undefined,
         theme: $('chatTheme').value,
         position: $('chatPosition').value,
-        showHistory: $('chatHistory').value === 'yes',
       });
     };
 
@@ -146,7 +136,6 @@
       new VoiceWidget({
         baseUrl: $('voiceBase').value.trim(),
         apiKey: $('voiceKey').value.trim(),
-        agentName: $('voiceAgent').value.trim(),
         onTranscription: (s) => log(`${s.speaker}: ${s.text}`),
         onStateChange: (s) => log(`[state] ${s}`),
       });

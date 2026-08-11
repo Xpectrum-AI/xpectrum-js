@@ -11,7 +11,7 @@ Two capabilities, one package:
 | | class | talks to |
 |---|---|---|
 **Chat** | `XpectrumChat` | your Xpectrum API — OpenAI-compatible endpoint |
-**Voice** | `XpectrumVoice` | your voice server + LiveKit WebRTC |
+**Voice** | `XpectrumVoice` | Xpectrum API + LiveKit WebRTC |
 
 Both need only a **base URL** and an **API key**, both shown in your console.
 
@@ -221,9 +221,9 @@ callers never get a silently empty result.
 import { XpectrumVoice } from 'xpectrum';
 
 const voice = new XpectrumVoice({
-  baseUrl: 'https://voice.yourserver.com',   // your voice server
-  apiKey: 'xpectrum_ai_sk_...',
-  agentName: 'my-sales-agent',
+  baseUrl: 'https://app.yourserver.com/v1',  // same API base + key as chat
+  apiKey: 'app-...',
+  // The voice agent is determined by the API key.
 });
 
 await voice.connect({
@@ -315,8 +315,8 @@ GET  /threads                       chat  — past conversations
 GET  /threads/{id}/messages         chat  — one transcript
 POST /tasks/{task_id}/cancel        chat  — stop a reply
 GET  /config                        chat  — greeting, starter questions, features
-POST /tokens/generate               voice — get a LiveKit room token
-POST /call-control/end-call         voice — end a call
+POST /voice/tokens/generate         voice — get a LiveKit room token
+POST /voice/call-control/end-call   voice — end a call
 ```
 
 The chat endpoint is **OpenAI-compatible**, so you can also point the official

@@ -1,6 +1,6 @@
 import { XpectrumChat } from '../chat/chat-client';
 import { renderMarkdown } from '../core/markdown';
-import type { StreamOptions, Thread } from '../chat/types';
+import type { StreamOptions } from '../chat/types';
 
 export interface ChatWidgetConfig {
   /** API key — used as Bearer token */
@@ -52,10 +52,6 @@ export interface ChatWidgetConfig {
   fontSize?: number;
   /** Corner rounding in px. */
   borderRadius?: number;
-
-  // ─── Behaviour ─────────────────────────────────────────────────────────
-  /** Show the conversation list when opening. Defaults to true. */
-  showHistory?: boolean;
 }
 
 /** A message as rendered in the widget — distinct from the API's ChatMessage. */
@@ -65,8 +61,6 @@ interface WidgetMessage {
   content: string;
   isStreaming?: boolean;
 }
-
-type View = 'list' | 'chat';
 
 const DEFAULT_CONFIG: Partial<ChatWidgetConfig> = {
   position: 'bottom-right',
@@ -81,26 +75,14 @@ const DEFAULT_CONFIG: Partial<ChatWidgetConfig> = {
   fontSize: 14,
   borderRadius: 12,
   inputPlaceholder: 'Type a message...',
-  showHistory: true,
 };
-
-/** "just now" / "5m ago" / "3h ago" / "2d ago" / a date beyond a week. */
-function relativeTime(seconds: number): string {
-  if (!seconds) return '';
-  const diff = Math.floor(Date.now() / 1000) - seconds;
-  if (diff < 60) return 'just now';
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
-  return new Date(seconds * 1000).toLocaleDateString();
-}
 
 /**
  * ChatWidget — drop-in embeddable chat.
  *
- * Opens on the user's past conversations, with a "New chat" button beneath
- * them. Picking one loads its transcript; the header then offers back and
- * new-chat controls.
+ * Opens straight into a conversation (greeting first, when one is
+ * configured); the header offers a new-chat control. Past conversations are
+ * never listed or loaded — the widget is send-and-reply only.
  *
  * Renders inside a Shadow DOM, so the host page's CSS cannot reach in and the
  * widget's cannot leak out. Everything visual is driven by CSS custom
@@ -116,10 +98,7 @@ export class ChatWidget {
 
   private isOpen = false;
   private opened = false;
-  private view: View = 'list';
 
-  private threads: Thread[] = [];
-  private threadsLoaded = false;
   private messages: WidgetMessage[] = [];
   private conversationId: string | null = null;
   private headerTitle: string;
@@ -146,7 +125,6 @@ export class ChatWidget {
       anonymousTtlDays: config.anonymousTtlDays,
     });
 
-    this.conversationId = this.loadConversationId();
     this.mount();
   }
 
@@ -161,7 +139,7 @@ export class ChatWidget {
     if (!this.opened) {
       this.opened = true;
       this.loadAppConfig();
-      this.config.showHistory ? this.openList() : this.startNewChat();
+      this.startNewChat();
     }
   }
 
@@ -222,18 +200,10 @@ export class ChatWidget {
 
     win.innerHTML = `
       <div class="xp-chat-header">
-        <button class="xp-header-btn xp-back-btn" title="Back" aria-label="Back">${this.getBackIcon()}</button>
         ${this.config.logo ? `<img class="xp-logo" src="${this.escapeAttr(this.config.logo)}" alt="" />` : ''}
         <span class="xp-chat-header-title">${this.escapeHtml(this.headerTitle)}</span>
         <button class="xp-header-btn xp-new-btn" title="New chat" aria-label="New chat">${this.getNewChatIcon()}</button>
         <button class="xp-header-btn xp-chat-close-btn" title="Close" aria-label="Close">${this.getCloseIcon()}</button>
-      </div>
-
-      <div class="xp-view xp-view-list">
-        <div class="xp-thread-list"></div>
-        <div class="xp-list-footer">
-          <button class="xp-new-chat-btn">${this.getNewChatIcon()}<span>New chat</span></button>
-        </div>
       </div>
 
       <div class="xp-view xp-view-chat">
@@ -246,9 +216,7 @@ export class ChatWidget {
     `;
 
     win.querySelector('.xp-chat-close-btn')?.addEventListener('click', () => this.close());
-    win.querySelector('.xp-back-btn')?.addEventListener('click', () => this.openList());
     win.querySelector('.xp-new-btn')?.addEventListener('click', () => this.startNewChat());
-    win.querySelector('.xp-new-chat-btn')?.addEventListener('click', () => this.startNewChat());
 
     const input = win.querySelector('.xp-chat-input') as HTMLTextAreaElement;
     const sendBtn = win.querySelector('.xp-chat-send-btn') as HTMLButtonElement;
@@ -274,70 +242,15 @@ export class ChatWidget {
     return win;
   }
 
-  // ─── Private: Views ─────────────────────────────────────────────────────
-
-  private setView(view: View): void {
-    this.view = view;
-    const win = this.windowEl;
-    if (!win) return;
-
-    (win.querySelector('.xp-view-list') as HTMLElement).style.display = view === 'list' ? 'flex' : 'none';
-    (win.querySelector('.xp-view-chat') as HTMLElement).style.display = view === 'chat' ? 'flex' : 'none';
-
-    // Back and new-chat only make sense inside a conversation, and only when
-    // there is a list to go back to
-    const inChat = view === 'chat';
-    const canGoBack = inChat && !!this.config.showHistory;
-    (win.querySelector('.xp-back-btn') as HTMLElement).style.display = canGoBack ? 'flex' : 'none';
-    (win.querySelector('.xp-new-btn') as HTMLElement).style.display = inChat ? 'flex' : 'none';
-  }
-
-  /** Show the conversation list, refreshing it from the server. */
-  private async openList(): Promise<void> {
-    this.setView('list');
-    this.renderThreads({ loading: !this.threadsLoaded });
-
-    try {
-      const page = await this.chat.listThreads({ limit: 30 });
-      this.threads = page.data;
-      this.threadsLoaded = true;
-
-      // Nothing to show on a first visit — go straight into a new conversation
-      if (!this.threads.length) {
-        this.startNewChat();
-        return;
-      }
-      this.renderThreads();
-    } catch {
-      this.renderThreads({ error: true });
-    }
-  }
-
-  private async openThread(threadId: string): Promise<void> {
-    this.conversationId = threadId;
-    this.saveConversationId(threadId);
-    this.messages = [];
-    this.setView('chat');
-    this.renderMessages({ loading: true });
-
-    try {
-      const page = await this.chat.getMessages(threadId, { limit: 50 });
-      this.messages = page.data.map((m) => ({ id: m.id, role: m.role, content: m.content }));
-      this.renderMessages();
-    } catch {
-      this.renderMessages({ error: true });
-    }
-  }
+  // ─── Private: Conversation ──────────────────────────────────────────────
 
   private startNewChat(): void {
     this.conversationId = null;
-    this.saveConversationId(null);
     this.messages = [];
 
     const greeting = this.greeting;
     if (greeting) this.messages.push({ id: 'welcome', role: 'assistant', content: greeting });
 
-    this.setView('chat');
     this.renderMessages();
     (this.windowEl?.querySelector('.xp-chat-input') as HTMLTextAreaElement | null)?.focus();
   }
@@ -402,13 +315,7 @@ export class ChatWidget {
 
     const result = await this.chat.stream(query, options);
 
-    if (result.conversationId) {
-      const isNew = this.conversationId !== result.conversationId;
-      this.conversationId = result.conversationId;
-      this.saveConversationId(result.conversationId);
-      // A new conversation won't be in the cached list yet
-      if (isNew) this.threadsLoaded = false;
-    }
+    if (result.conversationId) this.conversationId = result.conversationId;
     if (result.taskId) this.currentTaskId = result.taskId;
 
     this.streaming = false;
@@ -449,41 +356,6 @@ export class ChatWidget {
   }
 
   // ─── Private: Rendering ────────────────────────────────────────────────
-
-  private renderThreads(state: { loading?: boolean; error?: boolean } = {}): void {
-    const list = this.windowEl?.querySelector('.xp-thread-list');
-    if (!list) return;
-
-    if (state.error) {
-      list.innerHTML = `<div class="xp-empty">Could not load your conversations.</div>`;
-      return;
-    }
-    if (state.loading && !this.threads.length) {
-      list.innerHTML = `<div class="xp-empty">Loading…</div>`;
-      return;
-    }
-    if (!this.threads.length) {
-      list.innerHTML = `<div class="xp-empty">No conversations yet.</div>`;
-      return;
-    }
-
-    list.innerHTML = this.threads
-      .map(
-        (t) => `
-      <button class="xp-thread" data-id="${this.escapeAttr(t.id)}">
-        <span class="xp-thread-title">${this.escapeHtml(t.title || 'Untitled')}</span>
-        <span class="xp-thread-time">${this.escapeHtml(relativeTime(t.updatedAt))}</span>
-      </button>`,
-      )
-      .join('');
-
-    list.querySelectorAll('.xp-thread').forEach((el) => {
-      el.addEventListener('click', () => {
-        const id = (el as HTMLElement).dataset.id;
-        if (id) this.openThread(id);
-      });
-    });
-  }
 
   private renderMessages(state: { loading?: boolean; error?: boolean } = {}): void {
     const container = this.windowEl?.querySelector('.xp-chat-messages');
@@ -530,35 +402,6 @@ export class ChatWidget {
     return String(text).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
   }
 
-  // ─── Private: Persistence ──────────────────────────────────────────────
-
-  /**
-   * Scoped per app and user, so two widgets on one page never collide.
-   * Uses the client's resolved identity, which is the anonymous id when no
-   * `user` was configured.
-   */
-  private storageKey(): string {
-    return `xpectrum:thread:${this.config.baseUrl}:${this.chat.getUser()}`;
-  }
-
-  private loadConversationId(): string | null {
-    try {
-      return window.localStorage.getItem(this.storageKey());
-    } catch {
-      // Storage can be unavailable (private mode, blocked cookies)
-      return null;
-    }
-  }
-
-  private saveConversationId(id: string | null): void {
-    try {
-      if (id) window.localStorage.setItem(this.storageKey(), id);
-      else window.localStorage.removeItem(this.storageKey());
-    } catch {
-      // Non-fatal — the conversation just will not survive a reload
-    }
-  }
-
   // ─── Private: Icons ────────────────────────────────────────────────────
 
   private getChatIcon(): string {
@@ -570,12 +413,6 @@ export class ChatWidget {
   private getCloseIcon(): string {
     return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>`;
-  }
-
-  private getBackIcon(): string {
-    return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>`;
   }
 
@@ -684,33 +521,6 @@ export class ChatWidget {
 
       .xp-view { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 
-      /* ─── Conversation list ─── */
-      .xp-thread-list { flex: 1; overflow-y: auto; padding: 8px; }
-      .xp-thread {
-        display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
-        width: 100%; text-align: left;
-        padding: 10px 12px; margin-bottom: 4px;
-        background: none; border: 0; border-radius: calc(var(--xp-radius) - 4px);
-        cursor: pointer; font-family: inherit; color: var(--xp-text);
-      }
-      .xp-thread:hover { background: var(--xp-surface); }
-      .xp-thread-title {
-        font-size: var(--xp-size); font-weight: 500;
-        max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-      }
-      .xp-thread-time { font-size: calc(var(--xp-size) - 3px); color: var(--xp-muted); }
-
-      .xp-list-footer { padding: 10px; border-top: 1px solid var(--xp-border); flex-shrink: 0; }
-      .xp-new-chat-btn {
-        display: flex; align-items: center; justify-content: center; gap: 6px;
-        width: 100%; padding: 10px;
-        background: var(--xp-primary); color: var(--xp-on-primary);
-        border: 0; border-radius: calc(var(--xp-radius) - 4px);
-        font-family: inherit; font-size: var(--xp-size); font-weight: 500;
-        cursor: pointer;
-      }
-      .xp-new-chat-btn:hover { opacity: 0.92; }
-
       .xp-empty {
         padding: 24px 16px; text-align: center;
         color: var(--xp-muted); font-size: calc(var(--xp-size) - 1px);
@@ -718,10 +528,8 @@ export class ChatWidget {
 
       /* ─── Messages ─── */
       .xp-chat-messages { flex: 1; overflow-y: auto; padding: 16px; }
-      .xp-chat-messages::-webkit-scrollbar,
-      .xp-thread-list::-webkit-scrollbar { width: 4px; }
-      .xp-chat-messages::-webkit-scrollbar-thumb,
-      .xp-thread-list::-webkit-scrollbar-thumb { background: var(--xp-border); border-radius: 2px; }
+      .xp-chat-messages::-webkit-scrollbar { width: 4px; }
+      .xp-chat-messages::-webkit-scrollbar-thumb { background: var(--xp-border); border-radius: 2px; }
 
       .xp-msg { display: flex; margin-bottom: 12px; }
       .xp-msg-user { justify-content: flex-end; }
