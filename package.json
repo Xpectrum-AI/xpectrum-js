@@ -4,6 +4,25 @@
   "description": "Official Xpectrum AI SDK — add AI chat and real-time voice to any website or app.",
   "author": "Xpectrum AI",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Xpectrum-AI/xpectrum-js.git"
+  },
+  "homepage": "https://github.com/Xpectrum-AI/xpectrum-js#readme",
+  "bugs": {
+    "url": "https://github.com/Xpectrum-AI/xpectrum-js/issues"
+  },
+  "keywords": [
+    "ai",
+    "chatbot",
+    "voice",
+    "widget",
+    "webrtc",
+    "livekit",
+    "chat-widget",
+    "voice-assistant",
+    "xpectrum"
+  ],
   "main": "dist/index.cjs.js",
   "module": "dist/index.esm.js",
   "types": "dist/index.d.ts",
