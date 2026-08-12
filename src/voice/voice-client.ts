@@ -218,6 +218,8 @@ export class XpectrumVoice extends EventEmitter<VoiceEventMap> {
       this.on('disconnected', (d) => callbacks.onDisconnected!(d.reason));
     if (callbacks.onTranscription)
       this.on('transcription', (d) => callbacks.onTranscription!(d));
+    if (callbacks.onAgentAudio)
+      this.on('agentAudio', (d) => callbacks.onAgentAudio!(d.stream));
     if (callbacks.onAgentSpeaking)
       this.on('agentSpeaking', (d) => callbacks.onAgentSpeaking!(d.isSpeaking));
     if (callbacks.onConnectionStateChanged)
@@ -238,6 +240,10 @@ export class XpectrumVoice extends EventEmitter<VoiceEventMap> {
         el.setAttribute('data-xpectrum-voice', 'agent-audio');
         document.body.appendChild(el);
         this.audioElements.push(el);
+        // Expose the raw stream so UIs can drive audio-reactive visuals
+        if (track.mediaStreamTrack) {
+          this.emit('agentAudio', { stream: new MediaStream([track.mediaStreamTrack]) });
+        }
       }
     });
 

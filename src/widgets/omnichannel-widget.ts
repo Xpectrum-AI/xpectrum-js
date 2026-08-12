@@ -136,7 +136,7 @@ export class OmnichannelWidget {
   private createButton(): HTMLElement {
     const btn = document.createElement('div');
     btn.className = 'xp-omni-button';
-    btn.innerHTML = this.getMenuIcon();
+    btn.innerHTML = `<span class="xp-omni-ring"></span>${this.getMenuIcon()}`;
     btn.addEventListener('click', () => {
       this.isMenuOpen ? this.closeMenu() : this.openMenu();
     });
@@ -168,13 +168,13 @@ export class OmnichannelWidget {
   private openMenu(): void {
     if (this.menuEl) this.menuEl.style.display = 'flex';
     this.isMenuOpen = true;
-    if (this.buttonEl) this.buttonEl.innerHTML = this.getCloseIcon();
+    if (this.buttonEl) this.buttonEl.innerHTML = `<span class="xp-omni-ring"></span>${this.getCloseIcon()}`;
   }
 
   private closeMenu(): void {
     if (this.menuEl) this.menuEl.style.display = 'none';
     this.isMenuOpen = false;
-    if (this.buttonEl) this.buttonEl.innerHTML = this.getMenuIcon();
+    if (this.buttonEl) this.buttonEl.innerHTML = `<span class="xp-omni-ring"></span>${this.getMenuIcon()}`;
   }
 
   private hideMainButton(): void {
@@ -186,7 +186,7 @@ export class OmnichannelWidget {
   private showMainButton(): void {
     if (this.buttonEl) {
       this.buttonEl.style.display = 'flex';
-      this.buttonEl.innerHTML = this.getMenuIcon();
+      this.buttonEl.innerHTML = `<span class="xp-omni-ring"></span>${this.getMenuIcon()}`;
     }
   }
 
@@ -219,13 +219,13 @@ export class OmnichannelWidget {
 
       .xp-omni-button {
         position: fixed;
-        bottom: 1rem;
+        bottom: 1.25rem;
         ${pos}
-        width: 48px;
-        height: 48px;
+        width: 56px;
+        height: 56px;
         border-radius: 50%;
-        background: ${color};
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        background: linear-gradient(135deg, #22d3ee 0%, ${color} 45%, #e879f9 100%);
+        box-shadow: 0 6px 22px color-mix(in srgb, ${color} 55%, transparent);
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -233,11 +233,21 @@ export class OmnichannelWidget {
         z-index: ${this.config.zIndex || 2147483647};
         transition: transform 0.2s ease;
       }
-      .xp-omni-button:hover { transform: scale(1.05); }
+      .xp-omni-button:hover { transform: scale(1.06); }
+      .xp-omni-ring {
+        position: absolute; inset: 0; border-radius: 50%;
+        border: 2px solid color-mix(in srgb, ${color} 65%, transparent);
+        animation: xp-omni-pulse 2.6s ease-out infinite;
+      }
+      @keyframes xp-omni-pulse {
+        0%   { transform: scale(1);    opacity: 0.9; }
+        70%  { transform: scale(1.45); opacity: 0; }
+        100% { transform: scale(1.45); opacity: 0; }
+      }
 
       .xp-omni-menu {
         position: fixed;
-        bottom: calc(1rem + 60px);
+        bottom: calc(1.25rem + 68px);
         ${pos}
         display: flex;
         flex-direction: column;
@@ -249,23 +259,33 @@ export class OmnichannelWidget {
         display: flex;
         align-items: center;
         gap: 10px;
-        padding: 10px 16px;
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
+        padding: 8px 16px 8px 8px;
+        background: #ffffff;
+        border: 1px solid rgba(0,0,0,0.06);
+        border-radius: 999px;
         cursor: pointer;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         font-size: 14px;
-        font-weight: 500;
+        font-weight: 600;
         color: #374151;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-        transition: all 0.2s ease;
+        box-shadow: 0 8px 22px rgba(30, 8, 70, 0.16);
+        transition: transform 0.15s ease, box-shadow 0.2s ease;
         white-space: nowrap;
       }
       .xp-omni-option:hover {
-        background: #f9fafb;
-        border-color: ${color};
-        color: ${color};
+        transform: translateY(-1px) scale(1.03);
+        box-shadow: 0 10px 26px color-mix(in srgb, ${color} 30%, transparent);
+      }
+      .xp-omni-option svg {
+        width: 32px; height: 32px; padding: 7px;
+        border-radius: 50%;
+        color: #fff;
+      }
+      .xp-omni-option-chat svg {
+        background: linear-gradient(135deg, #22d3ee 0%, ${color} 100%);
+      }
+      .xp-omni-option-voice svg {
+        background: linear-gradient(135deg, ${color} 0%, #e879f9 100%);
       }
     `;
   }

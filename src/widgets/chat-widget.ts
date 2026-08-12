@@ -188,7 +188,7 @@ export class ChatWidget {
   private createButton(): HTMLElement {
     const btn = document.createElement('div');
     btn.className = 'xp-chat-button';
-    btn.innerHTML = this.getChatIcon();
+    btn.innerHTML = `<span class="xp-chat-button-ring"></span>${this.getChatIcon()}`;
     btn.addEventListener('click', () => this.toggle());
     return btn;
   }
@@ -388,7 +388,7 @@ export class ChatWidget {
 
   private updateButtonIcon(): void {
     if (!this.buttonEl) return;
-    this.buttonEl.innerHTML = this.isOpen ? this.getCloseIcon() : this.getChatIcon();
+    this.buttonEl.innerHTML = `<span class="xp-chat-button-ring"></span>${this.isOpen ? this.getCloseIcon() : this.getChatIcon()}`;
   }
 
   private escapeHtml(text: string): string {
@@ -468,15 +468,25 @@ export class ChatWidget {
         width: ${c.buttonSize}px;
         height: ${c.buttonSize}px;
         border-radius: 50%;
-        background: var(--xp-primary);
+        background: linear-gradient(135deg, #22d3ee 0%, var(--xp-primary) 45%, #e879f9 100%);
         color: var(--xp-on-primary);
         display: flex; align-items: center; justify-content: center;
         cursor: pointer;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        box-shadow: 0 6px 22px color-mix(in srgb, var(--xp-primary) 55%, transparent);
         z-index: ${c.zIndex};
         transition: transform 0.15s ease;
       }
-      .xp-chat-button:hover { transform: scale(1.05); }
+      .xp-chat-button:hover { transform: scale(1.06); }
+      .xp-chat-button-ring {
+        position: absolute; inset: 0; border-radius: 50%;
+        border: 2px solid color-mix(in srgb, var(--xp-primary) 65%, transparent);
+        animation: xp-launcher-pulse 2.6s ease-out infinite;
+      }
+      @keyframes xp-launcher-pulse {
+        0%   { transform: scale(1);    opacity: 0.9; }
+        70%  { transform: scale(1.45); opacity: 0; }
+        100% { transform: scale(1.45); opacity: 0; }
+      }
 
       .xp-chat-window {
         position: fixed;
@@ -488,8 +498,9 @@ export class ChatWidget {
         max-height: calc(100vh - 120px);
         background: var(--xp-bg);
         color: var(--xp-text);
-        border-radius: var(--xp-radius);
-        box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+        border-radius: max(var(--xp-radius), 20px);
+        border: 1px solid rgba(0,0,0,0.06);
+        box-shadow: 0 18px 44px rgba(30, 8, 70, 0.22);
         display: flex; flex-direction: column;
         overflow: hidden;
         z-index: ${c.zIndex};
@@ -500,7 +511,7 @@ export class ChatWidget {
       .xp-chat-header {
         display: flex; align-items: center; gap: 8px;
         padding: 12px 12px 12px 14px;
-        background: var(--xp-primary);
+        background: linear-gradient(120deg, color-mix(in srgb, var(--xp-primary) 82%, #22d3ee) 0%, var(--xp-primary) 45%, color-mix(in srgb, var(--xp-primary) 72%, #e879f9) 100%);
         color: var(--xp-on-primary);
         flex-shrink: 0;
       }
@@ -537,12 +548,22 @@ export class ChatWidget {
       .xp-msg-bubble {
         max-width: 80%;
         padding: 10px 14px;
-        border-radius: var(--xp-radius);
+        border-radius: 16px;
         line-height: 1.5;
         white-space: pre-wrap; word-wrap: break-word;
       }
-      .xp-msg-bubble-user { background: var(--xp-primary); color: var(--xp-on-primary); }
-      .xp-msg-bubble-assistant { background: var(--xp-surface); color: var(--xp-text); }
+      .xp-msg-bubble-user {
+        background: linear-gradient(135deg, var(--xp-primary) 0%, color-mix(in srgb, var(--xp-primary) 70%, #e879f9) 100%);
+        color: var(--xp-on-primary);
+        border-bottom-right-radius: 5px;
+        box-shadow: 0 3px 10px color-mix(in srgb, var(--xp-primary) 30%, transparent);
+      }
+      .xp-msg-bubble-assistant {
+        background: var(--xp-surface);
+        color: var(--xp-text);
+        border: 1px solid var(--xp-border);
+        border-bottom-left-radius: 5px;
+      }
       .xp-typing-cursor { animation: xp-blink 1s step-end infinite; }
       @keyframes xp-blink { 50% { opacity: 0; } }
 
@@ -605,22 +626,29 @@ export class ChatWidget {
       }
       .xp-chat-input {
         flex: 1; resize: none; max-height: 120px;
-        padding: 10px 12px;
+        padding: 10px 16px;
         border: 1px solid var(--xp-border);
-        border-radius: calc(var(--xp-radius) - 4px);
-        background: var(--xp-bg); color: var(--xp-text);
+        border-radius: 20px;
+        background: var(--xp-surface); color: var(--xp-text);
         font-family: inherit; font-size: var(--xp-size);
         line-height: 1.4; outline: none;
+        transition: border-color .2s, box-shadow .2s;
       }
-      .xp-chat-input:focus { border-color: var(--xp-primary); }
+      .xp-chat-input:focus {
+        border-color: var(--xp-primary);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--xp-primary) 15%, transparent);
+      }
       .xp-chat-send-btn {
-        width: 36px; height: 36px; flex-shrink: 0;
-        border: 0; border-radius: calc(var(--xp-radius) - 4px);
-        background: var(--xp-primary); color: var(--xp-on-primary);
+        width: 38px; height: 38px; flex-shrink: 0;
+        border: 0; border-radius: 50%;
+        background: linear-gradient(135deg, var(--xp-primary) 0%, color-mix(in srgb, var(--xp-primary) 70%, #e879f9) 100%);
+        color: var(--xp-on-primary);
         display: flex; align-items: center; justify-content: center;
         cursor: pointer;
+        box-shadow: 0 4px 12px color-mix(in srgb, var(--xp-primary) 40%, transparent);
+        transition: transform .15s ease;
       }
-      .xp-chat-send-btn:hover { opacity: 0.9; }
+      .xp-chat-send-btn:hover { transform: scale(1.07); }
     `;
   }
 }

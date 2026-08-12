@@ -26,7 +26,7 @@
   <fieldset>
     <legend>Chat widget</legend>
     <label>API Server (baseUrl)</label>
-    <input id="chatBase" placeholder="https://apps-v2-dev.xpectrum-ai.com/v1" />
+    <input id="chatBase" placeholder="https://app.yourserver.com/v1" />
     <label>API key</label>
     <input id="chatKey" placeholder="app-..." />
     <label>Welcome message</label>
@@ -76,10 +76,9 @@
     <button id="mountChat">Mount chat widget</button>
     <button id="remountChat" style="background:#555">Remount with new settings</button>
     <p style="font-size:.85rem;color:#666">
-      Opens on your past conversations with a <b>New chat</b> button beneath them.
-      Pick one to load its transcript; the header then shows back and new-chat
-      controls. Check the Network tab — only <code>/config</code>,
-      <code>/threads</code>, <code>/threads/{id}/messages</code> and
+      Opens straight into a fresh chat (greeting first, when configured) with a
+      <b>New chat</b> control in the header. No history is shown or loaded.
+      Check the Network tab — only <code>/config</code> and
       <code>/chat/completions</code>.
     </p>
   </fieldset>

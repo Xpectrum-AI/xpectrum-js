@@ -12,16 +12,18 @@ export interface VoiceWidgetConfig {
   container?: HTMLElement;
   /** Widget position */
   position?: 'bottom-right' | 'bottom-left';
-  /** Trigger button background color */
+  /** Accent colour — the orb, launcher and glow. */
   buttonColor?: string;
   /** Trigger button size in px */
   buttonSize?: number;
   /** z-index for the widget */
   zIndex?: number;
-  /** Window width in px */
+  /** Card width in px */
   windowWidth?: number;
-  /** Window height in px */
+  /** @deprecated The call card sizes to its content. */
   windowHeight?: number;
+  /** Title shown above the orb. Defaults to 'Voice assistant'. */
+  title?: string;
   /** Called for each transcription segment */
   onTranscription?: (segment: TranscriptionSegment) => void;
   /** Called on connection state changes */
@@ -31,17 +33,18 @@ export interface VoiceWidgetConfig {
 const DEFAULT_CONFIG: Partial<VoiceWidgetConfig> = {
   position: 'bottom-right',
   buttonColor: '#7C3AED',
-  buttonSize: 48,
+  buttonSize: 56,
   zIndex: 2147483647,
-  windowWidth: 360,
-  windowHeight: 480,
+  windowWidth: 240,
 };
 
 /**
- * VoiceWidget — Drop-in embeddable voice call button.
+ * VoiceWidget — Drop-in embeddable voice assistant.
  *
- * Renders a floating phone button that opens a voice call panel
- * with microphone controls and real-time transcription.
+ * A floating launcher opens a compact call card: a vivid animated orb you tap
+ * to start talking. While the agent speaks, an analyser reads its live audio
+ * and drives the orb and the rings around it, so the visual moves with the
+ * actual sound. No transcript log — this is a phone call, not a chat.
  */
 export class VoiceWidget {
   private config: Required<Pick<VoiceWidgetConfig, 'apiKey' | 'baseUrl'>> & VoiceWidgetConfig;
@@ -52,8 +55,16 @@ export class VoiceWidget {
   private shadowRoot: ShadowRoot | null = null;
   private isOpen = false;
   private state: VoiceConnectionState = 'disconnected';
-  private transcriptions: Array<{ speaker: string; text: string; id: string }> = [];
   private isMuted = false;
+  private callStartedAt: number | null = null;
+  private timerHandle: ReturnType<typeof setInterval> | null = null;
+
+  // Audio-reactive visualization
+  private audioCtx: AudioContext | null = null;
+  private analyser: AnalyserNode | null = null;
+  private analyserData: Uint8Array | null = null;
+  private rafId: number | null = null;
+  private level = 0;
 
   constructor(config: VoiceWidgetConfig) {
     this.config = { ...DEFAULT_CONFIG, ...config } as any;
@@ -88,6 +99,8 @@ export class VoiceWidget {
   }
 
   destroy(): void {
+    this.stopTimer();
+    this.stopVisualizer();
     this.voice.destroy();
     const host = this.container.querySelector('#xpectrum-voice-widget-host');
     if (host) host.remove();
@@ -119,37 +132,47 @@ export class VoiceWidget {
   private createButton(): HTMLElement {
     const btn = document.createElement('div');
     btn.className = 'xp-voice-button';
-    btn.innerHTML = this.getPhoneIcon();
+    btn.innerHTML = `<span class="xp-voice-button-ring"></span>${this.getMicIcon(24)}`;
     btn.addEventListener('click', () => this.toggle());
     return btn;
   }
 
   private createWindow(): HTMLElement {
     const win = document.createElement('div');
-    win.className = 'xp-voice-window';
+    win.className = 'xp-voice-card xp-state-disconnected';
     win.style.display = 'none';
 
     win.innerHTML = `
-      <div class="xp-voice-header">
-        <span class="xp-voice-title">Voice Call</span>
-        <button class="xp-voice-close-btn">${this.getCloseIcon()}</button>
+      <button class="xp-voice-close" title="Close" aria-label="Close">${this.getCloseIcon()}</button>
+
+      <div class="xp-orb-zone">
+        <div class="xp-wave xp-wave-1"></div>
+        <div class="xp-wave xp-wave-2"></div>
+        <div class="xp-wave xp-wave-3"></div>
+        <button class="xp-orb" title="Start call" aria-label="Start call">
+          <span class="xp-orb-swirl"></span>
+          <span class="xp-orb-glass"></span>
+        </button>
       </div>
-      <div class="xp-voice-status">
-        <div class="xp-voice-status-indicator"></div>
-        <span class="xp-voice-status-text">Ready to call</span>
-      </div>
-      <div class="xp-voice-transcription"></div>
-      <div class="xp-voice-controls">
-        <button class="xp-voice-mute-btn" title="Toggle microphone">${this.getMicIcon()}</button>
-        <button class="xp-voice-call-btn" title="Start call">${this.getPhoneIcon()}</button>
-        <button class="xp-voice-hangup-btn" title="End call" style="display:none">${this.getHangupIcon()}</button>
+
+      <div class="xp-voice-status">Tap to talk</div>
+      <div class="xp-voice-caption"></div>
+
+      <div class="xp-voice-footer">
+        <span class="xp-voice-timer">00:00</span>
+        <div class="xp-voice-controls">
+          <button class="xp-ctl xp-ctl-mute" title="Mute" aria-label="Mute">${this.getMicIcon(16)}</button>
+          <button class="xp-ctl xp-ctl-end" title="End call" aria-label="End call">${this.getHangupIcon()}</button>
+        </div>
       </div>
     `;
 
-    win.querySelector('.xp-voice-close-btn')?.addEventListener('click', () => this.close());
-    win.querySelector('.xp-voice-call-btn')?.addEventListener('click', () => this.startCall());
-    win.querySelector('.xp-voice-hangup-btn')?.addEventListener('click', () => this.hangUp());
-    win.querySelector('.xp-voice-mute-btn')?.addEventListener('click', () => this.toggleMute());
+    win.querySelector('.xp-voice-close')?.addEventListener('click', () => this.close());
+    win.querySelector('.xp-orb')?.addEventListener('click', () => {
+      if (this.state === 'disconnected' || this.state === 'failed') this.startCall();
+    });
+    win.querySelector('.xp-ctl-end')?.addEventListener('click', () => this.hangUp());
+    win.querySelector('.xp-ctl-mute')?.addEventListener('click', () => this.toggleMute());
 
     return win;
   }
@@ -158,22 +181,26 @@ export class VoiceWidget {
 
   private async startCall(): Promise<void> {
     this.updateState('connecting');
-    this.transcriptions = [];
-    this.renderTranscriptions();
+    this.setCaption('');
 
     try {
       await this.voice.connect({
-        onConnected: (roomName) => {
+        onConnected: () => {
           this.updateState('connected');
+          this.startTimer();
+        },
+        onAgentAudio: (stream) => {
+          this.startVisualizer(stream);
         },
         onTranscription: (segment) => {
-          this.handleTranscription(segment);
+          this.setCaption(segment.speaker === 'user' ? `“${segment.text}”` : segment.text);
           this.config.onTranscription?.(segment);
         },
         onAgentSpeaking: (isSpeaking) => {
-          this.updateAgentSpeaking(isSpeaking);
+          this.windowEl?.classList.toggle('xp-agent-speaking', isSpeaking);
+          this.updateStatusText(isSpeaking ? 'Speaking…' : 'Listening…');
         },
-        onDisconnected: (reason) => {
+        onDisconnected: () => {
           this.updateState('disconnected');
         },
         onReconnecting: () => {
@@ -184,12 +211,12 @@ export class VoiceWidget {
         },
         onError: (error) => {
           this.updateState('failed');
-          this.updateStatusText(`Error: ${error.message}`);
+          this.setCaption(error.message);
         },
       });
     } catch (error: any) {
       this.updateState('failed');
-      this.updateStatusText(`Failed to connect: ${error.message}`);
+      this.setCaption(error.message || 'Could not connect');
     }
   }
 
@@ -201,45 +228,103 @@ export class VoiceWidget {
   private async toggleMute(): Promise<void> {
     this.isMuted = !this.isMuted;
     await this.voice.setMicEnabled(!this.isMuted);
-    this.updateMuteButton();
+    const btn = this.windowEl?.querySelector('.xp-ctl-mute') as HTMLElement | null;
+    if (btn) {
+      btn.innerHTML = this.isMuted ? this.getMicOffIcon() : this.getMicIcon(16);
+      btn.title = this.isMuted ? 'Unmute' : 'Mute';
+      btn.classList.toggle('xp-ctl-muted', this.isMuted);
+    }
   }
 
-  // ─── Private: Transcription ─────────────────────────────────────────────
+  // ─── Private: Audio-reactive visualizer ─────────────────────────────────
 
-  private handleTranscription(segment: TranscriptionSegment): void {
-    const existing = this.transcriptions.find((t) => t.id === segment.id);
-    if (existing) {
-      existing.text = segment.text;
-    } else {
-      this.transcriptions.push({
-        id: segment.id,
-        speaker: segment.speaker,
-        text: segment.text,
-      });
+  /**
+   * Reads the agent's live audio and drives the orb + waves each frame, so
+   * the visual follows the actual sound instead of a canned animation.
+   */
+  private startVisualizer(stream: MediaStream): void {
+    this.stopVisualizer();
+    try {
+      this.audioCtx = new AudioContext();
+      const source = this.audioCtx.createMediaStreamSource(stream);
+      this.analyser = this.audioCtx.createAnalyser();
+      this.analyser.fftSize = 512;
+      this.analyser.smoothingTimeConstant = 0.6;
+      source.connect(this.analyser);
+      this.analyserData = new Uint8Array(this.analyser.fftSize);
+      this.windowEl?.classList.add('xp-reactive');
+      this.tick();
+    } catch {
+      // Visualizer is cosmetic — the call works without it
     }
-    // Keep only last 50 transcriptions
-    if (this.transcriptions.length > 50) {
-      this.transcriptions = this.transcriptions.slice(-50);
-    }
-    this.renderTranscriptions();
   }
 
-  private renderTranscriptions(): void {
-    const container = this.windowEl?.querySelector('.xp-voice-transcription');
-    if (!container) return;
+  private tick = (): void => {
+    if (!this.analyser || !this.analyserData) return;
 
-    container.innerHTML = this.transcriptions
-      .map(
-        (t) => `
-      <div class="xp-trans xp-trans-${t.speaker}">
-        <span class="xp-trans-speaker">${t.speaker === 'user' ? 'You' : 'Agent'}</span>
-        <span class="xp-trans-text">${this.escapeHtml(t.text)}</span>
-      </div>
-    `,
-      )
-      .join('');
+    this.analyser.getByteTimeDomainData(this.analyserData);
+    let sum = 0;
+    for (let i = 0; i < this.analyserData.length; i++) {
+      const v = (this.analyserData[i] - 128) / 128;
+      sum += v * v;
+    }
+    const rms = Math.sqrt(sum / this.analyserData.length);
+    // Fast attack, slow release — keeps the motion lively but not jittery
+    const target = Math.min(1, rms * 4.5);
+    this.level = target > this.level ? target : this.level * 0.88;
 
-    container.scrollTop = container.scrollHeight;
+    const orb = this.windowEl?.querySelector('.xp-orb') as HTMLElement | null;
+    if (orb) orb.style.transform = `scale(${1 + this.level * 0.16})`;
+
+    const waves = this.windowEl?.querySelectorAll('.xp-wave') as NodeListOf<HTMLElement> | undefined;
+    waves?.forEach((w, i) => {
+      const grow = this.level * (0.35 + i * 0.28);
+      w.style.transform = `scale(${1 + grow})`;
+      w.style.opacity = String(Math.max(0, this.level * 0.85 - i * 0.18));
+    });
+
+    this.rafId = requestAnimationFrame(this.tick);
+  };
+
+  private stopVisualizer(): void {
+    if (this.rafId) cancelAnimationFrame(this.rafId);
+    this.rafId = null;
+    this.analyser = null;
+    this.analyserData = null;
+    this.level = 0;
+    if (this.audioCtx) {
+      this.audioCtx.close().catch(() => null);
+      this.audioCtx = null;
+    }
+    this.windowEl?.classList.remove('xp-reactive');
+    const orb = this.windowEl?.querySelector('.xp-orb') as HTMLElement | null;
+    if (orb) orb.style.transform = '';
+    (this.windowEl?.querySelectorAll('.xp-wave') as NodeListOf<HTMLElement> | undefined)?.forEach((w) => {
+      w.style.transform = '';
+      w.style.opacity = '';
+    });
+  }
+
+  // ─── Private: Timer ─────────────────────────────────────────────────────
+
+  private startTimer(): void {
+    if (this.timerHandle) return;
+    this.callStartedAt = Date.now();
+    this.timerHandle = setInterval(() => {
+      const s = Math.floor((Date.now() - (this.callStartedAt || Date.now())) / 1000);
+      const mm = String(Math.floor(s / 60)).padStart(2, '0');
+      const ss = String(s % 60).padStart(2, '0');
+      const el = this.windowEl?.querySelector('.xp-voice-timer');
+      if (el) el.textContent = `${mm}:${ss}`;
+    }, 1000);
+  }
+
+  private stopTimer(): void {
+    if (this.timerHandle) clearInterval(this.timerHandle);
+    this.timerHandle = null;
+    this.callStartedAt = null;
+    const el = this.windowEl?.querySelector('.xp-voice-timer');
+    if (el) el.textContent = '00:00';
   }
 
   // ─── Private: UI Updates ────────────────────────────────────────────────
@@ -248,230 +333,265 @@ export class VoiceWidget {
     this.state = state;
     this.config.onStateChange?.(state);
 
-    const statusIndicator = this.windowEl?.querySelector('.xp-voice-status-indicator') as HTMLElement;
-    const callBtn = this.windowEl?.querySelector('.xp-voice-call-btn') as HTMLElement;
-    const hangupBtn = this.windowEl?.querySelector('.xp-voice-hangup-btn') as HTMLElement;
-    const muteBtn = this.windowEl?.querySelector('.xp-voice-mute-btn') as HTMLElement;
+    const win = this.windowEl;
+    if (!win) return;
+    win.classList.remove(
+      'xp-state-disconnected', 'xp-state-connecting', 'xp-state-connected',
+      'xp-state-reconnecting', 'xp-state-failed', 'xp-agent-speaking',
+    );
+    win.classList.add(`xp-state-${state}`);
 
     switch (state) {
       case 'disconnected':
-        this.updateStatusText('Ready to call');
-        if (statusIndicator) statusIndicator.style.background = '#9ca3af';
-        if (callBtn) callBtn.style.display = 'flex';
-        if (hangupBtn) hangupBtn.style.display = 'none';
-        if (muteBtn) muteBtn.style.display = 'none';
+        this.updateStatusText('Tap to talk');
+        this.stopTimer();
+        this.stopVisualizer();
+        this.isMuted = false;
         break;
       case 'connecting':
-        this.updateStatusText('Connecting...');
-        if (statusIndicator) statusIndicator.style.background = '#f59e0b';
-        if (callBtn) callBtn.style.display = 'none';
-        if (hangupBtn) hangupBtn.style.display = 'flex';
-        if (muteBtn) muteBtn.style.display = 'none';
+        this.updateStatusText('Connecting…');
         break;
       case 'connected':
-        this.updateStatusText('Connected');
-        if (statusIndicator) statusIndicator.style.background = '#10b981';
-        if (callBtn) callBtn.style.display = 'none';
-        if (hangupBtn) hangupBtn.style.display = 'flex';
-        if (muteBtn) muteBtn.style.display = 'flex';
+        this.updateStatusText('Listening…');
         break;
       case 'reconnecting':
-        this.updateStatusText('Reconnecting...');
-        if (statusIndicator) statusIndicator.style.background = '#f59e0b';
+        this.updateStatusText('Reconnecting…');
         break;
       case 'failed':
-        this.updateStatusText('Connection failed');
-        if (statusIndicator) statusIndicator.style.background = '#ef4444';
-        if (callBtn) callBtn.style.display = 'flex';
-        if (hangupBtn) hangupBtn.style.display = 'none';
-        if (muteBtn) muteBtn.style.display = 'none';
+        this.updateStatusText('Tap to retry');
+        this.stopTimer();
+        this.stopVisualizer();
         break;
     }
   }
 
   private updateStatusText(text: string): void {
-    const el = this.windowEl?.querySelector('.xp-voice-status-text');
+    const el = this.windowEl?.querySelector('.xp-voice-status');
     if (el) el.textContent = text;
   }
 
-  private updateAgentSpeaking(isSpeaking: boolean): void {
-    if (this.state !== 'connected') return;
-    this.updateStatusText(isSpeaking ? 'Agent is speaking...' : 'Listening...');
-  }
-
-  private updateMuteButton(): void {
-    const btn = this.windowEl?.querySelector('.xp-voice-mute-btn');
-    if (btn) {
-      btn.innerHTML = this.isMuted ? this.getMicOffIcon() : this.getMicIcon();
-      (btn as HTMLElement).title = this.isMuted ? 'Unmute' : 'Mute';
-    }
+  private setCaption(text: string): void {
+    const el = this.windowEl?.querySelector('.xp-voice-caption');
+    if (el) el.textContent = text;
   }
 
   private updateButtonIcon(): void {
     if (!this.buttonEl) return;
-    this.buttonEl.innerHTML = this.isOpen ? this.getCloseIcon() : this.getPhoneIcon();
-  }
-
-  private escapeHtml(text: string): string {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    this.buttonEl.innerHTML = this.isOpen
+      ? `<span class="xp-voice-button-ring"></span>${this.getCloseIcon()}`
+      : `<span class="xp-voice-button-ring"></span>${this.getMicIcon(24)}`;
   }
 
   // ─── Private: Icons ────────────────────────────────────────────────────
 
-  private getPhoneIcon(): string {
-    return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" fill="white"/></svg>`;
-  }
-
   private getCloseIcon(): string {
-    return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   }
 
   private getHangupIcon(): string {
-    return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M10.68 13.31a16 16 0 003.41 2.6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6A19.79 19.79 0 012.12 4.18 2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91" stroke="white" stroke-width="2" stroke-linecap="round"/><path d="M23 1L1 23" stroke="white" stroke-width="2" stroke-linecap="round"/></svg>`;
+    return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M21.7 14.4c-.6.6-1.5.7-2.2.4l-2.6-1.1a2 2 0 01-1.2-1.6l-.2-1.4a13.4 13.4 0 00-7 0l-.2 1.4a2 2 0 01-1.2 1.6l-2.6 1.1c-.7.3-1.6.2-2.2-.4l-1-1c-.8-.8-.9-2-.1-2.8C3.5 8 7.5 6 12 6s8.5 2 10.8 4.6c.8.8.7 2-.1 2.8l-1 1z" fill="currentColor"/></svg>`;
   }
 
-  private getMicIcon(): string {
-    return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" fill="currentColor"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  private getMicIcon(size = 20): string {
+    return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" fill="currentColor"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   }
 
   private getMicOffIcon(): string {
-    return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M1 1l22 22M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17 16.95A7 7 0 015 12v-2m14 0v2c0 .76-.12 1.5-.35 2.18M12 19v4M8 23h8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M1 1l22 22M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17 16.95A7 7 0 015 12v-2m14 0v2c0 .76-.12 1.5-.35 2.18M12 19v4M8 23h8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   }
 
   // ─── Private: Styles ───────────────────────────────────────────────────
 
   private getStyles(): string {
-    const pos = this.config.position === 'bottom-left' ? 'left: 1rem;' : 'right: 1rem;';
-    const color = this.config.buttonColor || '#7C3AED';
+    const pos = this.config.position === 'bottom-left' ? 'left: 1.25rem;' : 'right: 1.25rem;';
+    const accent = this.config.buttonColor || '#7C3AED';
+    const size = this.config.buttonSize || 56;
 
     return `
       * { box-sizing: border-box; margin: 0; padding: 0; }
 
+      /* ─── Launcher ─── */
       .xp-voice-button {
         position: fixed;
-        bottom: 1rem;
+        bottom: 1.25rem;
         ${pos}
-        width: ${this.config.buttonSize}px;
-        height: ${this.config.buttonSize}px;
+        width: ${size}px;
+        height: ${size}px;
         border-radius: 50%;
-        background: ${color};
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        background: linear-gradient(135deg, #22d3ee 0%, ${accent} 45%, #e879f9 100%);
+        box-shadow: 0 6px 22px color-mix(in srgb, ${accent} 55%, transparent);
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
+        color: #fff;
         z-index: ${this.config.zIndex};
         transition: transform 0.2s ease;
       }
-      .xp-voice-button:hover { transform: scale(1.05); }
+      .xp-voice-button:hover { transform: scale(1.06); }
+      .xp-voice-button-ring {
+        position: absolute; inset: 0; border-radius: 50%;
+        border: 2px solid color-mix(in srgb, ${accent} 65%, transparent);
+        animation: xp-launcher-pulse 2.6s ease-out infinite;
+      }
+      @keyframes xp-launcher-pulse {
+        0%   { transform: scale(1);    opacity: 0.9; }
+        70%  { transform: scale(1.45); opacity: 0; }
+        100% { transform: scale(1.45); opacity: 0; }
+      }
 
-      .xp-voice-window {
+      /* ─── Call card — compact ─── */
+      .xp-voice-card {
         position: fixed;
-        bottom: calc(1rem + ${(this.config.buttonSize || 48) + 12}px);
+        bottom: calc(1.25rem + ${size + 14}px);
         ${pos}
         width: ${this.config.windowWidth}px;
         max-width: calc(100vw - 2rem);
-        height: ${this.config.windowHeight}px;
-        max-height: calc(100vh - 6rem);
-        background: #fff;
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+        padding: 14px 14px 10px;
+        background: #ffffff;
+        border-radius: 20px;
+        border: 1px solid rgba(0,0,0,0.06);
+        box-shadow: 0 18px 44px rgba(30, 8, 70, 0.22);
         z-index: ${(this.config.zIndex || 2147483647) - 1};
         display: flex;
         flex-direction: column;
-        overflow: hidden;
+        align-items: center;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       }
 
-      .xp-voice-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 12px 16px;
-        border-bottom: 1px solid #e5e7eb;
-        background: ${color};
-        color: white;
+      .xp-voice-close {
+        position: absolute; top: 8px; right: 8px;
+        width: 26px; height: 26px; border-radius: 50%;
+        background: rgba(0,0,0,0.04); border: none; cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+        color: #9ca3af; transition: background .2s, color .2s;
+        z-index: 1;
       }
-      .xp-voice-title { font-weight: 600; font-size: 14px; }
-      .xp-voice-close-btn {
-        background: none; border: none; cursor: pointer; padding: 4px; display: flex; color: white;
+      .xp-voice-close:hover { background: rgba(0,0,0,0.08); color: #4b5563; }
+
+      /* ─── Orb ─── */
+      .xp-orb-zone {
+        position: relative;
+        width: 132px; height: 132px;
+        margin: 10px 0 4px;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .xp-orb {
+        position: relative;
+        width: 92px; height: 92px;
+        border-radius: 50%;
+        border: none; padding: 0; cursor: pointer;
+        background:
+          radial-gradient(120% 120% at 68% 78%, #e879f9 0%, transparent 45%),
+          radial-gradient(120% 120% at 22% 76%, #22d3ee 0%, transparent 50%),
+          radial-gradient(130% 130% at 35% 20%, color-mix(in srgb, ${accent} 60%, white) 0%, ${accent} 58%, color-mix(in srgb, ${accent} 62%, black) 100%);
+        box-shadow:
+          0 8px 30px color-mix(in srgb, ${accent} 60%, transparent),
+          0 0 44px color-mix(in srgb, #e879f9 35%, transparent),
+          inset 0 -6px 18px rgba(0,0,0,0.22),
+          inset 0 6px 12px rgba(255,255,255,0.4);
+        overflow: hidden;
+        animation: xp-orb-breathe 4.2s ease-in-out infinite;
+        will-change: transform;
+      }
+      /* When the analyser drives the orb, canned animations get out of the way */
+      .xp-reactive .xp-orb { animation: none; transition: transform .06s linear; }
+
+      .xp-state-disconnected .xp-orb:hover,
+      .xp-state-failed .xp-orb:hover { transform: scale(1.05); }
+      .xp-state-connected .xp-orb,
+      .xp-state-connecting .xp-orb,
+      .xp-state-reconnecting .xp-orb { cursor: default; }
+
+      .xp-orb-swirl {
+        position: absolute; inset: -18%;
+        background:
+          conic-gradient(from 0deg,
+            transparent 0deg, color-mix(in srgb, #22d3ee 70%, transparent) 80deg,
+            transparent 160deg, color-mix(in srgb, #e879f9 70%, transparent) 250deg,
+            transparent 360deg);
+        filter: blur(12px); opacity: .9;
+        mix-blend-mode: screen;
+        animation: xp-swirl 5.5s linear infinite;
+      }
+      @keyframes xp-swirl { to { transform: rotate(360deg); } }
+
+      .xp-orb-glass {
+        position: absolute; inset: 0; border-radius: 50%;
+        background: radial-gradient(85% 55% at 32% 16%, rgba(255,255,255,.6) 0%, rgba(255,255,255,0) 55%);
+      }
+      @keyframes xp-orb-breathe {
+        0%, 100% { transform: scale(1); }
+        50%      { transform: scale(1.03); }
       }
 
+      /* ─── Audio waves (driven per-frame by the analyser) ─── */
+      .xp-wave {
+        position: absolute;
+        width: 92px; height: 92px;
+        border-radius: 50%;
+        opacity: 0;
+        pointer-events: none;
+        will-change: transform, opacity;
+      }
+      .xp-wave-1 { border: 3px solid color-mix(in srgb, ${accent} 75%, transparent); }
+      .xp-wave-2 { border: 2px solid color-mix(in srgb, #22d3ee 75%, transparent); }
+      .xp-wave-3 { border: 2px solid color-mix(in srgb, #e879f9 70%, transparent); }
+
+      /* Connecting: spinner arc around the orb */
+      .xp-state-connecting .xp-wave-1,
+      .xp-state-reconnecting .xp-wave-1 {
+        opacity: 1;
+        border: 3px solid transparent;
+        border-top-color: ${accent};
+        animation: xp-spin 1s linear infinite;
+      }
+      @keyframes xp-spin { to { transform: rotate(360deg); } }
+
+      /* ─── Status / caption ─── */
       .xp-voice-status {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 12px 16px;
-        border-bottom: 1px solid #e5e7eb;
+        font-size: 14px; font-weight: 700; color: #111827;
+        min-height: 20px; letter-spacing: .01em;
       }
-      .xp-voice-status-indicator {
-        width: 10px; height: 10px; border-radius: 50%; background: #9ca3af;
+      .xp-voice-caption {
+        margin-top: 4px;
+        min-height: 30px;
+        max-width: 100%;
+        font-size: 12px; line-height: 1.3; color: #6b7280;
+        text-align: center;
+        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+        overflow: hidden;
       }
-      .xp-voice-status-text { font-size: 13px; color: #6b7280; }
+      .xp-state-failed .xp-voice-caption { color: #ef4444; }
 
-      .xp-voice-transcription {
-        flex: 1;
-        overflow-y: auto;
-        padding: 12px 16px;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
+      /* ─── Footer: timer + controls in one compact row ─── */
+      .xp-voice-footer {
+        width: 100%;
+        display: flex; align-items: center; justify-content: space-between;
+        margin-top: 8px;
+        min-height: 38px;
+        visibility: hidden;
       }
-      .xp-voice-transcription::-webkit-scrollbar { width: 4px; }
-      .xp-voice-transcription::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 2px; }
+      .xp-state-connected .xp-voice-footer,
+      .xp-state-connecting .xp-voice-footer,
+      .xp-state-reconnecting .xp-voice-footer { visibility: visible; }
 
-      .xp-trans {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
+      .xp-voice-timer {
+        font-size: 12px; color: #9ca3af; font-variant-numeric: tabular-nums;
+        padding-left: 4px;
       }
-      .xp-trans-speaker {
-        font-size: 11px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-      }
-      .xp-trans-user .xp-trans-speaker { color: ${color}; }
-      .xp-trans-agent .xp-trans-speaker { color: #6b7280; }
-      .xp-trans-text { font-size: 14px; color: #1a1a1a; line-height: 1.4; }
+      .xp-voice-controls { display: flex; align-items: center; gap: 10px; }
 
-      .xp-voice-controls {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 16px;
-        padding: 16px;
-        border-top: 1px solid #e5e7eb;
-      }
-      .xp-voice-call-btn {
-        width: 56px; height: 56px; border-radius: 50%;
-        background: #10b981; border: none; cursor: pointer;
+      .xp-ctl {
+        width: 38px; height: 38px; border-radius: 50%;
+        border: none; cursor: pointer;
         display: flex; align-items: center; justify-content: center;
-        box-shadow: 0 2px 8px rgba(16,185,129,0.3);
-        transition: transform 0.2s;
+        transition: transform .15s ease, background .2s;
       }
-      .xp-voice-call-btn:hover { transform: scale(1.05); }
-
-      .xp-voice-hangup-btn {
-        width: 56px; height: 56px; border-radius: 50%;
-        background: #ef4444; border: none; cursor: pointer;
-        display: flex; align-items: center; justify-content: center;
-        box-shadow: 0 2px 8px rgba(239,68,68,0.3);
-        transition: transform 0.2s;
-      }
-      .xp-voice-hangup-btn:hover { transform: scale(1.05); }
-
-      .xp-voice-mute-btn {
-        width: 44px; height: 44px; border-radius: 50%;
-        background: #f3f4f6; border: 1px solid #e5e7eb;
-        cursor: pointer; display: none;
-        align-items: center; justify-content: center;
-        color: #374151; transition: background 0.2s;
-      }
-      .xp-voice-mute-btn:hover { background: #e5e7eb; }
+      .xp-ctl:hover { transform: scale(1.07); }
+      .xp-ctl-mute { background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; }
+      .xp-ctl-mute.xp-ctl-muted { background: #fee2e2; color: #b91c1c; border-color: #fecaca; }
+      .xp-ctl-end { background: #ef4444; color: #fff; box-shadow: 0 5px 14px rgba(239,68,68,.4); }
     `;
   }
 }

@@ -45,6 +45,8 @@ export interface VoiceEventMap {
   disconnected: { reason: string };
   transcription: TranscriptionSegment;
   agentSpeaking: { isSpeaking: boolean };
+  /** The agent's live audio stream — for visualizers (waveforms, orbs). */
+  agentAudio: { stream: MediaStream };
   connectionStateChanged: { state: VoiceConnectionState };
   reconnecting: {};
   reconnected: {};
@@ -59,6 +61,8 @@ export interface VoiceConnectCallbacks {
   onDisconnected?: (reason: string) => void;
   onTranscription?: (segment: TranscriptionSegment) => void;
   onAgentSpeaking?: (isSpeaking: boolean) => void;
+  /** Fired when the agent's audio starts — the stream feeds visualizers. */
+  onAgentAudio?: (stream: MediaStream) => void;
   onConnectionStateChanged?: (state: VoiceConnectionState) => void;
   onReconnecting?: () => void;
   onReconnected?: () => void;
