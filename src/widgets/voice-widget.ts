@@ -62,7 +62,7 @@ export class VoiceWidget {
   // Audio-reactive visualization
   private audioCtx: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
-  private analyserData: Uint8Array | null = null;
+  private analyserData: Uint8Array<ArrayBuffer> | null = null;
   private rafId: number | null = null;
   private level = 0;
 
@@ -251,7 +251,7 @@ export class VoiceWidget {
       this.analyser.fftSize = 512;
       this.analyser.smoothingTimeConstant = 0.6;
       source.connect(this.analyser);
-      this.analyserData = new Uint8Array(this.analyser.fftSize);
+      this.analyserData = new Uint8Array(new ArrayBuffer(this.analyser.fftSize));
       this.windowEl?.classList.add('xp-reactive');
       this.tick();
     } catch {
