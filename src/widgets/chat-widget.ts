@@ -27,6 +27,17 @@ export interface ChatWidgetConfig {
   welcomeMessage?: string;
   /** Placeholder text in the message box. */
   inputPlaceholder?: string;
+  /**
+   * Tappable questions under the greeting of a new chat. `true` (default) uses
+   * the starter questions configured in the console; an array overrides them;
+   * `false` hides them.
+   */
+  starterQuestions?: boolean | string[];
+  /**
+   * Tappable follow-up questions under each reply. Needs the agent's
+   * follow-up suggestions feature; silently shows nothing otherwise. On by default.
+   */
+  suggestions?: boolean;
 
   // ─── Layout ────────────────────────────────────────────────────────────
   position?: 'bottom-right' | 'bottom-left';
@@ -60,10 +71,14 @@ interface WidgetMessage {
   role: 'user' | 'assistant';
   content: string;
   isStreaming?: boolean;
+  /** Follow-up questions offered under this reply. */
+  suggestions?: string[];
 }
 
 const DEFAULT_CONFIG: Partial<ChatWidgetConfig> = {
   position: 'bottom-right',
+  starterQuestions: true,
+  suggestions: true,
   primaryColor: '#7C3AED',
   onPrimaryColor: '#ffffff',
   buttonSize: 48,
@@ -100,12 +115,13 @@ export class ChatWidget {
   private opened = false;
 
   private messages: WidgetMessage[] = [];
-  private conversationId: string | null = null;
+  private threadId: string | null = null;
   private headerTitle: string;
   private greeting: string | undefined;
+  private starterQuestions: string[] = [];
 
   private streaming = false;
-  private currentTaskId: string | null = null;
+  private currentRunId: string | null = null;
   private abortCurrent: AbortController | null = null;
 
   constructor(config: ChatWidgetConfig) {
@@ -117,6 +133,7 @@ export class ChatWidget {
     this.container = config.container || document.body;
     this.headerTitle = config.title || 'Chat';
     this.greeting = config.welcomeMessage;
+    if (Array.isArray(config.starterQuestions)) this.starterQuestions = config.starterQuestions;
 
     this.chat = new XpectrumChat({
       baseUrl: config.baseUrl,
@@ -138,7 +155,7 @@ export class ChatWidget {
 
     if (!this.opened) {
       this.opened = true;
-      this.loadAppConfig();
+      this.loadAgentInfo();
       this.startNewChat();
     }
   }
@@ -245,28 +262,41 @@ export class ChatWidget {
   // ─── Private: Conversation ──────────────────────────────────────────────
 
   private startNewChat(): void {
-    this.conversationId = null;
+    this.threadId = null;
     this.messages = [];
 
-    const greeting = this.greeting;
-    if (greeting) this.messages.push({ id: 'welcome', role: 'assistant', content: greeting });
-
+    this.showWelcome();
     this.renderMessages();
     (this.windowEl?.querySelector('.xp-chat-input') as HTMLTextAreaElement | null)?.focus();
   }
 
-  /** Title and greeting come from the console, so they are configured once. */
-  private async loadAppConfig(): Promise<void> {
+  /** The greeting bubble with starter-question chips, for an empty chat. */
+  private showWelcome(): void {
+    if (!this.greeting) return;
+    const chips = this.config.starterQuestions === false ? [] : this.starterQuestions;
+    this.messages = [{ id: 'welcome', role: 'assistant', content: this.greeting, suggestions: chips }];
+  }
+
+  /** Title, greeting and starter questions come from the console, so they are configured once. */
+  private async loadAgentInfo(): Promise<void> {
     try {
-      const appConfig = await this.chat.getConfig();
-      if (!this.config.title && appConfig.appearance?.title) {
-        this.headerTitle = appConfig.appearance.title;
+      const agent = await this.chat.getAgent();
+      if (!this.config.title && agent.title) {
+        this.headerTitle = agent.title;
         const el = this.windowEl?.querySelector('.xp-chat-header-title');
         if (el) el.textContent = this.headerTitle;
       }
-      if (!this.greeting && appConfig.greeting) this.greeting = appConfig.greeting;
+      if (!this.greeting && agent.greeting) this.greeting = agent.greeting;
+      if (!Array.isArray(this.config.starterQuestions)) this.starterQuestions = agent.starterQuestions;
+
+      // The chat may already be open on an empty/welcome-only screen — refresh it
+      const untouched = this.messages.length === 0 || (this.messages.length === 1 && this.messages[0].id === 'welcome');
+      if (untouched) {
+        this.showWelcome();
+        this.renderMessages();
+      }
     } catch {
-      // Config is optional — the embed's own values stand
+      // Agent info is optional — the embed's own values stand
     }
   }
 
@@ -293,7 +323,7 @@ export class ChatWidget {
     this.updateSendButton();
 
     const options: StreamOptions = {
-      conversationId: this.conversationId || undefined,
+      threadId: this.threadId || undefined,
       getAbortController: (controller) => {
         this.abortCurrent = controller;
       },
@@ -302,7 +332,7 @@ export class ChatWidget {
         this.renderMessages();
       },
       onDone: (result) => {
-        if (result.taskId) this.currentTaskId = result.taskId;
+        if (result.runId) this.currentRunId = result.runId;
         assistantMsg.isStreaming = false;
         this.renderMessages();
       },
@@ -315,14 +345,38 @@ export class ChatWidget {
 
     const result = await this.chat.stream(query, options);
 
-    if (result.conversationId) this.conversationId = result.conversationId;
-    if (result.taskId) this.currentTaskId = result.taskId;
+    if (result.threadId) this.threadId = result.threadId;
+    if (result.runId) this.currentRunId = result.runId;
 
     this.streaming = false;
     this.abortCurrent = null;
     assistantMsg.isStreaming = false;
     this.renderMessages();
     this.updateSendButton();
+
+    if (this.config.suggestions !== false && result.messageId && result.content) {
+      this.loadSuggestions(assistantMsg, result.messageId);
+    }
+  }
+
+  /** Fetch follow-ups for a finished reply and attach them to its bubble. */
+  private async loadSuggestions(msg: WidgetMessage, messageId: string): Promise<void> {
+    try {
+      const questions = await this.chat.getSuggestions(messageId);
+      // Only the latest reply offers follow-ups — stale chips are confusing
+      if (!questions.length || this.messages[this.messages.length - 1] !== msg) return;
+      msg.suggestions = questions;
+      this.renderMessages();
+    } catch {
+      // Suggestions are a nicety — never surface their failure
+    }
+  }
+
+  private sendSuggestion(text: string): void {
+    const input = this.windowEl?.querySelector('.xp-chat-input') as HTMLTextAreaElement | null;
+    if (!input || this.streaming) return;
+    input.value = text;
+    this.handleSend(input);
   }
 
   /**
@@ -336,9 +390,9 @@ export class ChatWidget {
     this.abortCurrent = null;
     this.streaming = false;
 
-    const taskId = this.currentTaskId;
-    this.currentTaskId = null;
-    if (taskId) this.chat.cancel(taskId).catch(() => {});
+    const runId = this.currentRunId;
+    this.currentRunId = null;
+    if (runId) this.chat.cancel(runId).catch(() => {});
 
     const last = this.messages[this.messages.length - 1];
     if (last && last.isStreaming) last.isStreaming = false;
@@ -376,12 +430,21 @@ export class ChatWidget {
         const body =
           msg.role === 'assistant' ? renderMarkdown(msg.content) : this.escapeHtml(msg.content);
         const cursor = msg.isStreaming ? '<span class="xp-typing-cursor">|</span>' : '';
+        const chips = msg.suggestions?.length
+          ? `<div class="xp-suggestions">${msg.suggestions
+              .map((q) => `<button type="button" class="xp-suggestion">${this.escapeHtml(q)}</button>`)
+              .join('')}</div>`
+          : '';
         return `
       <div class="xp-msg xp-msg-${msg.role}">
-        <div class="xp-msg-bubble xp-msg-bubble-${msg.role}">${body}${cursor}</div>
+        <div class="xp-msg-bubble xp-msg-bubble-${msg.role}">${body}${cursor}</div>${chips}
       </div>`;
       })
       .join('');
+
+    container.querySelectorAll<HTMLButtonElement>('.xp-suggestion').forEach((btn) => {
+      btn.addEventListener('click', () => this.sendSuggestion(btn.textContent || ''));
+    });
 
     container.scrollTop = container.scrollHeight;
   }
@@ -539,6 +602,10 @@ export class ChatWidget {
 
       /* ─── Messages ─── */
       .xp-chat-messages { flex: 1; overflow-y: auto; padding: 16px; }
+      .xp-suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
+      .xp-suggestion { font: inherit; font-size: 0.875em; padding: 6px 12px; border-radius: 999px; cursor: pointer;
+        border: 1px solid var(--xp-primary); background: transparent; color: var(--xp-primary); }
+      .xp-suggestion:hover { background: var(--xp-primary); color: var(--xp-on-primary); }
       .xp-chat-messages::-webkit-scrollbar { width: 4px; }
       .xp-chat-messages::-webkit-scrollbar-thumb { background: var(--xp-border); border-radius: 2px; }
 
