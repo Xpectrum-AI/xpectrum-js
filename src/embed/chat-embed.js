@@ -13,6 +13,9 @@
  *       title: 'Acme Support',
  *       welcomeMessage: 'Hi! How can I help?',
  *       inputPlaceholder: 'Ask us anything…',
+ *       // Optional question chips:
+ *       starterQuestions: true,      // true = from console | false | ['Where is my order?', …]
+ *       suggestions: true,           // follow-up questions under each reply
  *       // Optional theme:
  *       theme: 'light',              // 'light' | 'dark' | 'auto'
  *       primaryColor: '#7C3AED',
@@ -92,6 +95,9 @@
         title: config.title,
         welcomeMessage: config.welcomeMessage,
         inputPlaceholder: config.inputPlaceholder,
+        // Question chips
+        starterQuestions: config.starterQuestions,
+        suggestions: config.suggestions,
         // Layout
         position: config.position || 'bottom-right',
         buttonSize: config.buttonSize || 48,

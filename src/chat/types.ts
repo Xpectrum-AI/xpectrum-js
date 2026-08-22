@@ -22,8 +22,8 @@ export interface XpectrumChatConfig {
    * Ignored when `user` is supplied.
    */
   anonymousTtlDays?: number;
-  /** Default input variables to send with every request */
-  inputs?: Record<string, any>;
+  /** Default agent variables to send with every request */
+  variables?: Record<string, any>;
 }
 
 // ─── Messages ───────────────────────────────────────────────────────────────
@@ -40,20 +40,21 @@ export interface ChatMessage {
 /** A prompt is either a bare string (sent as one user message) or a full message array. */
 export type Prompt = string | ChatMessage[];
 
-export interface ChatFile {
-  type: 'image';
-  transfer_method: 'remote_url' | 'local_file';
-  url?: string;
-  upload_file_id?: string;
-}
+/** A file sent with a message — by public URL or by the id of a previous upload. */
+export type Attachment =
+  | { type: AttachmentType; url: string; file_id?: never }
+  | { type: AttachmentType; file_id: string; url?: never };
+
+export type AttachmentType = 'image' | 'document' | 'audio' | 'video';
 
 // ─── Request Options ────────────────────────────────────────────────────────
 
 export interface ChatOptions {
-  /** Continue an existing conversation. History is kept server-side — no need to resend it. */
-  conversationId?: string;
-  inputs?: Record<string, any>;
-  files?: ChatFile[];
+  /** Continue an existing thread. History is kept server-side — no need to resend it. */
+  threadId?: string;
+  /** Agent variables for this call (merged over the configured defaults). */
+  variables?: Record<string, any>;
+  attachments?: Attachment[];
   channel?: string;
   channelMetadata?: Record<string, any>;
   /** IANA timezone, e.g. 'Asia/Kolkata' */
@@ -75,7 +76,7 @@ export interface SendOptions extends ChatOptions {
   /**
    * Send a single non-streaming request instead of streaming and aggregating.
    * Slightly cheaper, but the API rejects blocking mode for agent apps — leave
-   * this off unless you know the app is a chatbot or chatflow.
+   * this off unless you know the agent is a chatbot or flow.
    */
   blocking?: boolean;
 }
@@ -88,28 +89,30 @@ export interface ChatUsage {
   total_tokens: number;
 }
 
-export interface RetrieverResource {
-  position: number;
-  dataset_id?: string;
-  dataset_name?: string;
+export interface Citation {
+  object?: 'citation';
+  knowledge_id?: string;
+  knowledge_name?: string;
   document_id?: string;
   document_name?: string;
-  segment_id?: string;
-  score?: number;
+  chunk_id?: string;
   content?: string;
+  score?: number;
+  position?: number;
 }
 
 export interface ChatResult {
   /** The assistant's full reply. */
   content: string;
   model?: string;
-  /** Pass into a later call to continue the same conversation. */
-  conversationId?: string;
+  /** Pass into a later call to continue the same thread. */
+  threadId?: string;
   messageId?: string;
-  taskId?: string;
+  /** Pass to `cancel()` to stop generation server-side. */
+  runId?: string;
   usage?: ChatUsage;
-  /** Knowledge-base citations, when the app has retrieval enabled. */
-  retrieverResources?: RetrieverResource[];
+  /** Knowledge-base citations, when the agent has retrieval enabled. */
+  citations?: Citation[];
   finishReason?: string;
 }
 
@@ -119,11 +122,19 @@ export interface ChatError {
   status?: number;
 }
 
+/** One entry of `GET /models`. A key reaches exactly one agent, so the entry also carries its info. */
 export interface ModelInfo {
+  /** The agent id — also what to send as `model`. */
   id: string;
   object: string;
   created: number;
   owned_by: string;
+  name?: string;
+  description?: string;
+  mode?: string;
+  title?: string;
+  greeting?: string;
+  starter_questions?: string[];
 }
 
 // ─── History ────────────────────────────────────────────────────────────────
@@ -142,7 +153,7 @@ export interface ThreadMessage {
   role: 'user' | 'assistant';
   content: string;
   createdAt: number;
-  citations?: RetrieverResource[];
+  citations?: Citation[];
   /** Set when the reply failed — explains an empty `content`. */
   error?: string;
 }
@@ -172,38 +183,20 @@ export interface Page<T> {
   lastId?: string;
 }
 
-// ─── App config ─────────────────────────────────────────────────────────────
+// ─── Agent ──────────────────────────────────────────────────────────────────
 
-export interface AppFeatures {
-  speechToText: boolean;
-  textToSpeech: boolean;
-  fileUpload: boolean;
-  citations: boolean;
-  suggestedQuestionsAfterAnswer: boolean;
-}
-
-export interface AppAppearance {
-  title?: string;
-  icon?: string;
-  iconBackground?: string;
-  defaultLanguage?: string;
-  copyright?: string;
-  privacyPolicy?: string;
-  customDisclaimer?: string;
-}
-
-/** Everything needed to render a client, in one call. */
-export interface AppConfig {
-  name?: string;
-  description?: string;
+/** The agent behind the API key — what a client shows before the first message. */
+export interface AgentInfo {
+  id: string;
+  name: string;
+  description: string;
+  mode: 'chatbot' | 'agent' | 'flow' | 'workflow' | 'completion';
+  /** Display title for a chat header (falls back to `name`). */
+  title: string;
   /** The opening message, configured in the console. */
   greeting?: string;
   /** Suggested prompts to show alongside the greeting. */
   starterQuestions: string[];
-  inputFields: Array<Record<string, any>>;
-  features: AppFeatures;
-  limits?: Record<string, any>;
-  appearance?: AppAppearance;
 }
 
 // ─── Wire formats (internal) ────────────────────────────────────────────────
@@ -223,7 +216,7 @@ export interface RawThreadMessage {
   role?: 'user' | 'assistant';
   content?: string;
   created_at?: number;
-  citations?: RetrieverResource[];
+  citations?: Citation[];
   error?: string;
 }
 
@@ -236,30 +229,10 @@ export interface RawPage<T> {
   last_id?: string | null;
 }
 
-export interface RawAppConfig {
+export interface RawSuggestions {
   object?: string;
-  name?: string;
-  description?: string;
-  greeting?: string;
-  starter_questions?: string[];
-  input_fields?: Array<Record<string, any>>;
-  features?: {
-    speech_to_text?: boolean;
-    text_to_speech?: boolean;
-    file_upload?: boolean;
-    citations?: boolean;
-    suggested_questions_after_answer?: boolean;
-  };
-  limits?: Record<string, any>;
-  appearance?: {
-    title?: string;
-    icon?: string;
-    icon_background?: string;
-    default_language?: string;
-    copyright?: string;
-    privacy_policy?: string;
-    custom_disclaimer?: string;
-  };
+  message_id?: string;
+  data?: string[];
 }
 
 export interface RawStreamChunk {
@@ -267,15 +240,15 @@ export interface RawStreamChunk {
   object?: string;
   created?: number;
   model?: string;
-  conversation_id?: string;
-  task_id?: string;
+  thread_id?: string;
+  run_id?: string;
   choices?: Array<{
     index: number;
     delta: { role?: string; content?: string };
     finish_reason: string | null;
   }>;
   usage?: ChatUsage;
-  retriever_resources?: RetrieverResource[];
+  citations?: Citation[];
   error?: { message?: string; type?: string; code?: string };
 }
 
@@ -284,8 +257,8 @@ export interface RawCompletion {
   object?: string;
   created?: number;
   model?: string;
-  conversation_id?: string;
-  task_id?: string;
+  thread_id?: string;
+  run_id?: string;
   mode?: string;
   choices?: Array<{
     index: number;
@@ -293,7 +266,7 @@ export interface RawCompletion {
     finish_reason: string | null;
   }>;
   usage?: ChatUsage;
-  retriever_resources?: RetrieverResource[];
+  citations?: Citation[];
 }
 
 export interface ModelListResponse {

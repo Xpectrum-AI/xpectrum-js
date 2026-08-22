@@ -20,14 +20,15 @@ export type {
   ChatMessage,
   ContentPart,
   Prompt,
-  ChatFile,
+  Attachment,
+  AttachmentType,
   ChatOptions,
   StreamOptions,
   SendOptions,
   ChatResult,
   ChatUsage,
   ChatError,
-  RetrieverResource,
+  Citation,
   ModelInfo,
   // History
   Thread,
@@ -37,9 +38,7 @@ export type {
   ListOptions,
   Page,
   // App config
-  AppConfig,
-  AppFeatures,
-  AppAppearance,
+  AgentInfo,
 } from './chat/types';
 
 // ─── Voice ───────────────────────────────────────────────────────────────────
