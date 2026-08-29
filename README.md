@@ -213,6 +213,50 @@ callers never get a silently empty result.
 
 ---
 
+## Workflows
+
+Workflow apps take variables and return outputs rather than chatting:
+
+```typescript
+import { XpectrumWorkflow } from 'xpectrum';
+
+const wf = new XpectrumWorkflow({ baseUrl, apiKey: 'workflow app key' });
+
+// Wait for the result
+const run = await wf.run({ variables: { topic: 'pricing' } });
+console.log(run.status, run.outputs);
+
+// Or follow progress step by step
+await wf.stream({
+  variables: { topic: 'pricing' },
+  onStart: (r) => console.log('run', r.id),
+  onStepStart: (s) => console.log('→', s.title),
+  onStepComplete: (s) => console.log('✓', s.title, s.status),
+  onDone: (run) => console.log(run.outputs),
+});
+
+await wf.cancel(runId);   // stop a run in progress
+```
+
+`attachments` work the same as in chat.
+
+---
+
+## Knowledge search
+
+Query a knowledge base directly with a **knowledge** API key (workspace-scoped,
+not an app key):
+
+```typescript
+import { XpectrumKnowledge } from 'xpectrum';
+
+const kb = new XpectrumKnowledge({ baseUrl, apiKey: 'knowledge key' });
+const { data } = await kb.search('<knowledge id>', 'refund policy', { limit: 5 });
+// → [{ score, content, document_id, chunk_id, position }, …]
+```
+
+---
+
 ## Quick Start — Voice
 
 ```typescript
@@ -310,17 +354,19 @@ latest, so a future release would reach your live site without you upgrading.
 
 ## Endpoints used
 
-The whole SDK talks to eight routes:
+The whole SDK talks to ten routes:
 
 ```
-POST /chat/completions              chat  — send a message, stream the reply
-GET  /models                        chat  — the agent this key reaches (id, title, greeting, starter questions)
-GET  /threads                       chat  — past conversations
-GET  /threads/{id}/messages         chat  — one transcript
-POST /runs/{run_id}/cancel          chat  — stop a reply
-GET  /messages/{id}/suggestions     chat  — follow-up questions for a reply
-POST /voice/tokens/generate         voice — get a LiveKit room token
-POST /voice/call-control/end-call   voice — end a call
+POST /chat/completions              chat      — send a message, stream the reply
+GET  /models                        chat      — the agent this key reaches (id, title, greeting, starter questions)
+GET  /threads                       chat      — past conversations
+GET  /threads/{id}/messages         chat      — one transcript
+GET  /messages/{id}/suggestions     chat      — follow-up questions for a reply
+POST /runs                          workflow  — run a workflow (blocking or streamed)
+POST /runs/{run_id}/cancel          both      — stop a reply or a run
+POST /knowledge/{id}/search         knowledge — search a knowledge base
+POST /voice/tokens/generate         voice     — get a LiveKit room token
+POST /voice/call-control/end-call   voice     — end a call
 ```
 
 The chat endpoint is **OpenAI-compatible**, so you can also point the official
