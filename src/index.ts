@@ -41,6 +41,27 @@ export type {
   AgentInfo,
 } from './chat/types';
 
+// ─── Workflow ────────────────────────────────────────────────────────────────
+export { XpectrumWorkflow } from './workflow/workflow-client';
+export type {
+  XpectrumWorkflowConfig,
+  RunOptions,
+  RunStreamOptions,
+  Run,
+  RunStarted,
+  RunStatus,
+  Step,
+} from './workflow/types';
+
+// ─── Knowledge ───────────────────────────────────────────────────────────────
+export { XpectrumKnowledge } from './knowledge/knowledge-client';
+export type {
+  XpectrumKnowledgeConfig,
+  KnowledgeSearchOptions,
+  KnowledgeMatch,
+  KnowledgeSearchResult,
+} from './knowledge/knowledge-client';
+
 // ─── Voice ───────────────────────────────────────────────────────────────────
 export { XpectrumVoice } from './voice/voice-client';
 export type {
