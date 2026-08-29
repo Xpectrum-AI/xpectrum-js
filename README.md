@@ -344,10 +344,10 @@ For sites without a build step:
     welcomeMessage: 'Hi! How can I help?',
   };
 </script>
-<script src="https://unpkg.com/xpectrum@1.0.0/dist/chat-embed.min.js" defer></script>
+<script src="https://unpkg.com/xpectrum@1.1.0/dist/chat-embed.min.js" defer></script>
 ```
 
-**Always pin the version** (`@1.0.0`). An unpinned URL resolves to whatever is
+**Always pin the version** (`@1.1.0`). An unpinned URL resolves to whatever is
 latest, so a future release would reach your live site without you upgrading.
 
 ---

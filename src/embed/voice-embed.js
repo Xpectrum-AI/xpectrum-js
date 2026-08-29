@@ -14,9 +14,9 @@
  *       buttonColor: '#7C3AED',
  *     };
  *   </script>
- *   <script src="https://unpkg.com/xpectrum@1.0.0/dist/voice-embed.min.js" defer></script>
+ *   <script src="https://unpkg.com/xpectrum@1.1.0/dist/voice-embed.min.js" defer></script>
  *
- * Always pin the version (`@1.0.0`) — an unpinned URL resolves to whatever is
+ * Always pin the version (`@1.1.0`) — an unpinned URL resolves to whatever is
  * latest, so a future release would reach live sites without them upgrading.
  */
 (function () {
