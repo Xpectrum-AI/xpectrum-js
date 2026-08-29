@@ -20,15 +20,19 @@ export type {
   ChatMessage,
   ContentPart,
   Prompt,
-  ChatFile,
+  Attachment,
+  AttachmentType,
   ChatOptions,
   StreamOptions,
   SendOptions,
   ChatResult,
   ChatUsage,
   ChatError,
-  RetrieverResource,
+  Citation,
+  AgentMode,
   ModelInfo,
+  AgentInfo,
+  Suggestions,
   // History
   Thread,
   ThreadMessage,
@@ -36,11 +40,28 @@ export type {
   MessageListOptions,
   ListOptions,
   Page,
-  // App config
-  AppConfig,
-  AppFeatures,
-  AppAppearance,
 } from './chat/types';
+
+// ─── Workflow ────────────────────────────────────────────────────────────────
+export { XpectrumWorkflow } from './workflow/workflow-client';
+export type {
+  XpectrumWorkflowConfig,
+  RunOptions,
+  RunStreamOptions,
+  Run,
+  RunStarted,
+  RunStatus,
+  Step,
+} from './workflow/types';
+
+// ─── Knowledge ───────────────────────────────────────────────────────────────
+export { XpectrumKnowledge } from './knowledge/knowledge-client';
+export type {
+  XpectrumKnowledgeConfig,
+  KnowledgeSearchOptions,
+  KnowledgeMatch,
+  KnowledgeSearchResult,
+} from './knowledge/knowledge-client';
 
 // ─── Voice ───────────────────────────────────────────────────────────────────
 export { XpectrumVoice } from './voice/voice-client';

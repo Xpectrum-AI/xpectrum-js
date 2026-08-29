@@ -152,7 +152,7 @@
         log('models: ' + JSON.stringify(await chat.listModels()));
         const r = await chat.send('Say hello in one sentence.');
         log('send(): ' + r.content);
-        log('conversationId: ' + r.conversationId);
+        log('threadId: ' + r.threadId);
         log('--- stream() ---');
         await chat.stream('Count to 5.', { onToken: (d) => { $('out').textContent += d; } });
         log('\ndone');

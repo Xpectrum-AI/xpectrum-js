@@ -19,11 +19,12 @@ import type {
   ThreadListOptions,
   MessageListOptions,
   Page,
-  AppConfig,
+  AgentInfo,
+  Suggestions,
   RawThread,
   RawThreadMessage,
   RawPage,
-  RawAppConfig,
+  RawSuggestions,
 } from './types';
 
 const DEFAULT_MODEL = 'xpectrum';
@@ -37,7 +38,7 @@ function toMessages(prompt: Prompt): ChatMessage[] {
  *
  * Streaming is the default because agent apps only support streaming; `send()`
  * streams under the hood and resolves with the finished reply, so it works for
- * chatbot, agent and chatflow apps alike.
+ * chatbot, agent and flow apps alike.
  *
  * @example
  * ```ts
@@ -103,11 +104,14 @@ export class XpectrumChat {
     };
 
     // Xpectrum extension fields — ignored by standard OpenAI clients
-    const inputs = options.inputs || this.config.inputs;
-    if (inputs) body.inputs = inputs;
+    const variables =
+      options.variables || this.config.variables
+        ? { ...(this.config.variables || {}), ...(options.variables || {}) }
+        : undefined;
+    if (variables) body.variables = variables;
     body.user = this.getUser();
-    if (options.conversationId) body.conversation_id = options.conversationId;
-    if (options.files?.length) body.files = options.files;
+    if (options.threadId) body.thread_id = options.threadId;
+    if (options.attachments?.length) body.attachments = options.attachments;
     if (options.channel) body.channel = options.channel;
     if (options.channelMetadata) body.channel_metadata = options.channelMetadata;
     if (options.timezone) body.timezone = options.timezone;
@@ -156,10 +160,10 @@ export class XpectrumChat {
           }
 
           if (chunk.model) result.model = chunk.model;
-          if (chunk.conversation_id) result.conversationId = chunk.conversation_id;
-          if (chunk.task_id) result.taskId = chunk.task_id;
+          if (chunk.thread_id) result.threadId = chunk.thread_id;
+          if (chunk.run_id) result.runId = chunk.run_id;
           if (chunk.usage) result.usage = chunk.usage;
-          if (chunk.retriever_resources) result.retrieverResources = chunk.retriever_resources;
+          if (chunk.citations) result.citations = chunk.citations;
           // Chunk ids are formatted `chatcmpl-<message_id>`
           if (chunk.id) result.messageId = chunk.id.replace(/^chatcmpl-/, '');
 
@@ -229,11 +233,12 @@ export class XpectrumChat {
     return {
       content: choice?.message?.content || '',
       model: raw.model,
-      conversationId: raw.conversation_id,
+      threadId: raw.thread_id,
       messageId: raw.id?.replace(/^chatcmpl-/, ''),
-      taskId: raw.task_id,
+      runId: raw.run_id,
+      mode: raw.mode,
       usage: raw.usage,
-      retrieverResources: raw.retriever_resources,
+      citations: raw.citations,
       finishReason: choice?.finish_reason || undefined,
     };
   }
@@ -303,55 +308,58 @@ export class XpectrumChat {
    *
    * Aborting the stream client-side only stops *reading* it — the model keeps
    * generating and keeps consuming tokens until this is called. Pass the
-   * `taskId` from a `ChatResult` or from `onDone`.
+   * `runId` from a `ChatResult` or from `onDone`.
    */
-  async cancel(taskId: string): Promise<void> {
-    await this.http.post(`/tasks/${taskId}/cancel`, { user: this.getUser() });
+  async cancel(runId: string): Promise<void> {
+    await this.http.post(`/runs/${runId}/cancel`, { user: this.getUser() });
   }
 
-  // ─── App config ─────────────────────────────────────────────────────────
+  // ─── Suggestions ────────────────────────────────────────────────────────
 
   /**
-   * Fetch the app's greeting, starter questions and feature flags.
+   * Follow-up questions the user is likely to ask next, generated from the
+   * thread so far. Costs one model call, so ask only when about to show them.
    *
-   * One request replaces what would otherwise be several, and lets a client
-   * render itself from what was configured in the console rather than
-   * hardcoding it.
+   * `messageId` is the assistant message to follow on from — `messageId` on a
+   * `ChatResult`, or an assistant message id from `getMessages()`. Requires
+   * the agent's follow-up suggestions feature to be enabled.
    */
-  async getConfig(options: { signal?: AbortSignal } = {}): Promise<AppConfig> {
-    const raw = await this.http.get<RawAppConfig>('/config', undefined, { signal: options.signal });
-    const features = raw.features || {};
-    const appearance = raw.appearance || {};
+  async getSuggestions(messageId: string, options: { signal?: AbortSignal } = {}): Promise<Suggestions> {
+    const raw = await this.http.get<RawSuggestions>(
+      `/messages/${messageId}/suggestions`,
+      { user: this.getUser() },
+      { signal: options.signal },
+    );
+    return { messageId: raw.message_id || messageId, questions: raw.data || [] };
+  }
 
+  // ─── Agent info ─────────────────────────────────────────────────────────
+
+  /**
+   * Describe the agent behind this API key — name, title, greeting and starter
+   * questions — so a client can render itself from what was configured in the
+   * console rather than hardcoding it.
+   */
+  async getAgent(options: { signal?: AbortSignal } = {}): Promise<AgentInfo> {
+    const res = await this.http.get<ModelListResponse>('/models', undefined, { signal: options.signal });
+    const m = res.data?.[0];
+    if (!m) {
+      throw new XpectrumApiError({ code: 'model_not_found', message: 'No agent behind this API key.', status: 404 });
+    }
     return {
-      name: raw.name,
-      description: raw.description,
-      greeting: raw.greeting || undefined,
-      starterQuestions: raw.starter_questions || [],
-      inputFields: raw.input_fields || [],
-      features: {
-        speechToText: !!features.speech_to_text,
-        textToSpeech: !!features.text_to_speech,
-        fileUpload: !!features.file_upload,
-        citations: !!features.citations,
-        suggestedQuestionsAfterAnswer: !!features.suggested_questions_after_answer,
-      },
-      limits: raw.limits,
-      appearance: {
-        title: appearance.title,
-        icon: appearance.icon,
-        iconBackground: appearance.icon_background,
-        defaultLanguage: appearance.default_language,
-        copyright: appearance.copyright,
-        privacyPolicy: appearance.privacy_policy,
-        customDisclaimer: appearance.custom_disclaimer,
-      },
+      id: m.id,
+      name: m.name || '',
+      description: m.description || '',
+      mode: m.mode,
+      title: m.title || m.name || '',
+      greeting: m.greeting || undefined,
+      starterQuestions: m.starter_questions || [],
     };
   }
 
   // ─── Models ─────────────────────────────────────────────────────────────
 
-  /** List the models this API key can reach. */
+  /** OpenAI-style model list. The single entry is the agent behind this key. */
   async listModels(): Promise<ModelInfo[]> {
     const res = await this.http.get<ModelListResponse>('/models');
     return res.data || [];

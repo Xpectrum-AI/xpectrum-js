@@ -258,13 +258,13 @@ export class ChatWidget {
   /** Title and greeting come from the console, so they are configured once. */
   private async loadAppConfig(): Promise<void> {
     try {
-      const appConfig = await this.chat.getConfig();
-      if (!this.config.title && appConfig.appearance?.title) {
-        this.headerTitle = appConfig.appearance.title;
+      const agent = await this.chat.getAgent();
+      if (!this.config.title && agent.title) {
+        this.headerTitle = agent.title;
         const el = this.windowEl?.querySelector('.xp-chat-header-title');
         if (el) el.textContent = this.headerTitle;
       }
-      if (!this.greeting && appConfig.greeting) this.greeting = appConfig.greeting;
+      if (!this.greeting && agent.greeting) this.greeting = agent.greeting;
     } catch {
       // Config is optional — the embed's own values stand
     }
@@ -293,7 +293,7 @@ export class ChatWidget {
     this.updateSendButton();
 
     const options: StreamOptions = {
-      conversationId: this.conversationId || undefined,
+      threadId: this.conversationId || undefined,
       getAbortController: (controller) => {
         this.abortCurrent = controller;
       },
@@ -302,7 +302,7 @@ export class ChatWidget {
         this.renderMessages();
       },
       onDone: (result) => {
-        if (result.taskId) this.currentTaskId = result.taskId;
+        if (result.runId) this.currentTaskId = result.runId;
         assistantMsg.isStreaming = false;
         this.renderMessages();
       },
@@ -315,8 +315,8 @@ export class ChatWidget {
 
     const result = await this.chat.stream(query, options);
 
-    if (result.conversationId) this.conversationId = result.conversationId;
-    if (result.taskId) this.currentTaskId = result.taskId;
+    if (result.threadId) this.conversationId = result.threadId;
+    if (result.runId) this.currentTaskId = result.runId;
 
     this.streaming = false;
     this.abortCurrent = null;

@@ -31,7 +31,7 @@ const chat = new XpectrumChat({
 // Promise style — resolves with the finished reply
 const res = await chat.send('What are your business hours?');
 console.log(res.content);
-console.log(res.conversationId);   // pass back in to continue the conversation
+console.log(res.threadId);         // pass back in to continue the thread
 
 // Token by token
 await chat.stream('Tell me a story', {
@@ -50,7 +50,7 @@ History lives server-side — you never resend it:
 ```typescript
 const first = await chat.send('My name is Vijay.');
 const second = await chat.send('What is my name?', {
-  conversationId: first.conversationId,
+  threadId: first.threadId,
 });
 // → "Your name is Vijay."
 ```
@@ -70,6 +70,18 @@ await chat.send([
 ```
 
 Both a remote URL and a base64 `data:` URI work.
+
+### Attachments and variables
+
+```typescript
+await chat.send('Summarise this', {
+  attachments: [
+    { type: 'document', url: 'https://example.com/report.pdf' },
+    { type: 'image', file_id: '<previously uploaded file id>' },
+  ],
+  variables: { language: 'en' },   // the agent's input variables
+});
+```
 
 ### Cancelling
 
@@ -132,7 +144,7 @@ const { data: messages } = await chat.getMessages(threads[0].id);
 // → [{ id, role: 'user', content: '…' }, { id, role: 'assistant', content: '…' }]
 
 // Continue that conversation
-await chat.send('And what about weekends?', { conversationId: threads[0].id });
+await chat.send('And what about weekends?', { threadId: threads[0].id });
 ```
 
 Both are paginated. Pass the previous page's cursor to go further back:
@@ -148,13 +160,13 @@ const earlier = await chat.getMessages(threadId, { before: page.firstId });
 ### Stopping a reply
 
 ```typescript
-let taskId;
+let runId;
 chat.stream('Write a long essay', {
   onToken: (d, full) => render(full),
-  onDone: (result) => { taskId = result.taskId; },
+  onDone: (result) => { runId = result.runId; },
 });
 
-await chat.cancel(taskId);   // tells the server to stop
+await chat.cancel(runId);   // tells the server to stop
 ```
 
 Aborting client-side only stops you *reading* the reply — the model keeps
@@ -165,28 +177,37 @@ immediate UI response, do both:
 let controller;
 const promise = chat.stream(prompt, {
   getAbortController: (c) => { controller = c; },
-  onDone: (r) => { taskId = r.taskId; },
+  onDone: (r) => { runId = r.runId; },
 });
 controller.abort();          // UI stops now
-await chat.cancel(taskId);   // server stops too
+await chat.cancel(runId);    // server stops too
 ```
 
-### App config
+### Follow-up suggestions
 
-One call for everything needed to render a client — the greeting configured in
-the console, starter questions, and which features are enabled:
+Questions the user is likely to ask next, generated from the thread so far.
+Costs one model call, so ask only when you're about to show them. Requires the
+agent's follow-up suggestions feature to be enabled in the console.
 
 ```typescript
-const config = await chat.getConfig();
-
-console.log(config.greeting);            // opening message from the console
-console.log(config.starterQuestions);    // suggested prompts
-console.log(config.features);            // { speechToText, textToSpeech,
-                                         //   fileUpload, citations, … }
-console.log(config.appearance?.title);   // header title and icon
+const res = await chat.send('How do refunds work?');
+const { questions } = await chat.getSuggestions(res.messageId);
+// → ['How long does a refund take?', 'Can I get store credit instead?']
 ```
 
-Use `features` to decide which buttons to show rather than guessing.
+### Agent info
+
+Describe the agent behind the key — its title, greeting and starter questions —
+so a client renders itself from what was configured in the console:
+
+```typescript
+const agent = await chat.getAgent();
+
+console.log(agent.title);              // header title
+console.log(agent.greeting);           // opening message from the console
+console.log(agent.starterQuestions);   // suggested prompts
+console.log(agent.mode);               // 'chatbot' | 'agent' | 'flow' | 'workflow'
+```
 
 ### Chat API
 
@@ -198,20 +219,65 @@ Use `features` to decide which buttons to show rather than guessing.
 `stream(prompt, options?)` | `Promise<ChatResult>` — plus `onToken` per token |
 `listThreads(options?)` | `Promise<Page<Thread>>` — past conversations |
 `getMessages(threadId, options?)` | `Promise<Page<ThreadMessage>>` — one transcript |
-`cancel(taskId)` | `Promise<void>` — stop a reply server-side |
-`getConfig()` | `Promise<AppConfig>` — greeting, starter questions, features |
-`listModels()` | `Promise<ModelInfo[]>` |
+`cancel(runId)` | `Promise<void>` — stop a reply server-side |
+`getSuggestions(messageId)` | `Promise<Suggestions>` — follow-up questions |
+`getAgent()` | `Promise<AgentInfo>` — title, greeting, starter questions |
+`listModels()` | `Promise<ModelInfo[]>` — OpenAI-style, one entry: the agent |
 `destroy()` | aborts in-flight streams |
 
-`ChatResult` carries `content`, `conversationId`, `messageId`, `taskId`, `usage`, `finishReason`, and `retrieverResources` when the app has retrieval enabled.
+`ChatResult` carries `content`, `threadId`, `messageId`, `runId`, `mode`, `usage`, `finishReason`, and `citations` when the agent has retrieval enabled.
 
 Errors go to `onError` if you supply it; otherwise they throw, so promise-style
 callers never get a silently empty result.
 
 > **Note:** `send()` streams internally and assembles the reply, so it works for
-> chatbot, agent and chatflow apps alike. Passing `blocking: true` issues a single
+> chatbot, agent and flow apps alike. Passing `blocking: true` issues a single
 > non-streaming request instead — slightly cheaper, but the API rejects blocking
 > mode for **agent** apps, so leave it off unless you know the app type.
+
+---
+
+## Workflows
+
+Workflow apps take variables and return outputs rather than chatting:
+
+```typescript
+import { XpectrumWorkflow } from 'xpectrum';
+
+const wf = new XpectrumWorkflow({ baseUrl, apiKey: 'workflow app key' });
+
+// Wait for the result
+const run = await wf.run({ variables: { topic: 'pricing' } });
+console.log(run.status, run.outputs);
+
+// Or follow progress step by step
+await wf.stream({
+  variables: { topic: 'pricing' },
+  onStart: (r) => console.log('run', r.id),
+  onStepStart: (s) => console.log('→', s.title),
+  onStepComplete: (s) => console.log('✓', s.title, s.status),
+  onDone: (run) => console.log(run.outputs),
+});
+
+await wf.cancel(runId);   // stop a run in progress
+```
+
+`attachments` work the same as in chat.
+
+---
+
+## Knowledge search
+
+Query a knowledge base directly with a **knowledge** API key (workspace-scoped,
+not an app key):
+
+```typescript
+import { XpectrumKnowledge } from 'xpectrum';
+
+const kb = new XpectrumKnowledge({ baseUrl, apiKey: 'knowledge key' });
+const { data } = await kb.search('<knowledge id>', 'refund policy', { limit: 5 });
+// → [{ score, content, document_id, chunk_id, position }, …]
+```
 
 ---
 
@@ -306,17 +372,19 @@ latest, so a future release would reach your live site without you upgrading.
 
 ## Endpoints used
 
-The whole SDK talks to eight routes:
+The whole SDK talks to ten routes:
 
 ```
-POST /chat/completions              chat  — send a message, stream the reply
-GET  /models                        chat  — list the model this key reaches
-GET  /threads                       chat  — past conversations
-GET  /threads/{id}/messages         chat  — one transcript
-POST /tasks/{task_id}/cancel        chat  — stop a reply
-GET  /config                        chat  — greeting, starter questions, features
-POST /voice/tokens/generate         voice — get a LiveKit room token
-POST /voice/call-control/end-call   voice — end a call
+POST /chat/completions              chat      — send a message, stream the reply
+GET  /models                        chat      — the agent behind this key (name, greeting, starters)
+GET  /threads                       chat      — past conversations
+GET  /threads/{id}/messages         chat      — one transcript
+GET  /messages/{id}/suggestions     chat      — follow-up questions
+POST /runs                          workflow  — run a workflow (blocking or streamed)
+POST /runs/{run_id}/cancel          both      — stop a reply or a run
+POST /knowledge/{id}/search         knowledge — search a knowledge base
+POST /voice/tokens/generate         voice     — get a LiveKit room token
+POST /voice/call-control/end-call   voice     — end a call
 ```
 
 The chat endpoint is **OpenAI-compatible**, so you can also point the official
@@ -351,12 +419,13 @@ move. If you do:
 — | `chat.send(q)` for a plain promise |
 `onMessage(text, id, convId)` | `onToken(delta, full)`; ids are on the result |
 `onMessageEnd(meta)` | `onDone(result)` |
-`chat.getAppParams()` | `chat.getConfig()` |
-`chat.stopResponse(taskId)` | `chat.cancel(taskId)` |
+`chat.getAppParams()` | `chat.getAgent()` |
+`chat.stopResponse(taskId)` | `chat.cancel(runId)` |
 `chat.getConversations()` | `chat.listThreads()` |
 `chat.getMessages(convId)` | `chat.getMessages(threadId)` — now returns one message per turn side |
 `onThought` / `onFile` / `onTTSChunk` | not available |
-feedback / suggested questions / speech-to-text | not available |
+`chat.getSuggestedQuestions(msgId)` | `chat.getSuggestions(messageId)` |
+feedback / speech-to-text | not available |
 
 ---
 
